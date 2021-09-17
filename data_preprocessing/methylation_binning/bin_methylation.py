@@ -6,6 +6,8 @@ Author: Serena G. Lotreck
 from os.path import abspath
 import argparse 
 
+from gene import Gene
+
 import pandas as pd 
 from collections import defaultdict
 import pickle
@@ -19,7 +21,7 @@ def get_column_chunks(all_cols, chunksize):
         all_cols, list of str: list of column header names 
         chunksize, int: number of columns to read in at a time
     """
-    for i in range(0, len(all_cols), chunksize):
+    for i in range(1, len(all_cols), chunksize): # Start at 1 to account for empty first col over index
         yield all_cols[i:i+chunksize]
 
 
@@ -48,18 +50,18 @@ def read_methylation_file(filepath):
 
     # Read in chunks and concat to one df
     print('\nReading in file...')
-    for i, use_cols in enumerate(get_column_chunks(headers, 100)):
-        print(f'Reading chunk {i} of {len(headers)%100}')
+    for i, use_cols in enumerate(get_column_chunks(headers, 10)):
+        print(f'Reading chunk {i} of {len(headers)//10+1}')
         # If it's the first chunk, make this the df 
         if i == 0:
             # Read in 
-            df = pd.read_csv(filepath, use_cols=use_cols)
+            df = pd.read_csv(filepath, usecols=use_cols)
             # Transpose 
             df = df.T
         # Otherwise, transpose and add to the bottom
         else:
             # Read in 
-            df_chunk = pd.read_csv(filepath, use_cols=use_cols)
+            df_chunk = pd.read_csv(filepath, usecols=use_cols)
             # Transpose and append  
             df = pd.concat([df, df_chunk.T])
 
@@ -92,7 +94,7 @@ def get_start_row(gff):
         while start_row == 0: # Only read lines until we find the start row 
             if line[0] != '#': # If it doesn't start with a comment, it's the first data row 
                 start_row = line_num
-            else: line_num += 1
+            else: start_row += 1
 
     return start_row 
 
@@ -109,21 +111,25 @@ def get_genes(gff):
             lists of Gene instances with that seqid
     """
     # Determine at what row the data starts
+    print('Getting start row...')
     start_row = get_start_row(gff)
 
     # Read in the data 
+    print('Reading in genome data...')
     gff_df = pd.read_csv(gff, sep='\t', skiprows=start_row,
             names=['seqid', 'source', 'type', 'start', 'end', 'score', 
                     'strand', 'phase', 'attributes'])
 
     # Filter df to keep only 'gene' rows
+    print('Getting genes...')
     genes_df = gff_df[gff_df['type'] == 'gene']
-
+    
     # Make gene objects 
+    print('Making gene objects...')
     genes = defaultdict(list)
-    for row in genes_df.itterrows():
-        gene = Gene(row['seqid'], row['start'], row['end'])
-        genes[row['seqid']].append(gene)
+    for index, row in genes_df.iterrows():
+        gene = Gene(row.at['seqid'], row.at['start'], row.at['end'])
+        genes[row.at['seqid']].append(gene)
 
     return genes 
 
@@ -132,6 +138,7 @@ def main(gff, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop, CHG_prop,
         CHH_prop, out_loc, file_prefix):
 
     # Make gene objects 
+    print('\nRetrieving  genes from genome...')
     genes = get_genes(gff)
 
     # Read in methylation datasets 
@@ -151,7 +158,7 @@ def main(gff, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop, CHG_prop,
         # Filter methylation datasets
         current_seqid_dfs = {}
         for dataset_name, df in methylation_dfs.items():
-            filtered_df = df.loc[dataset_name, :]
+            filtered_df = df.loc[dataset_name, :] # I have absolutely no idea what this line is doing 
             current_seqid_dfs[dataset_name] = filtered_df 
         # Pass to Gene class methods
         genes_to_check = genes[seqid]
@@ -176,17 +183,17 @@ if __name__ == '__main__':
 
     parser.add_argument('-gff', type=str,
             help='Path to gff3-formatted file with genomic features.')
-    parser.add-argument('-CG_pres_abs', type=str,
+    parser.add_argument('-CG_pres_abs', type=str,
             help='Path to file with presence/absence data for CG methylation.')
-    parser.add-argument('-CHG_pres_abs', type=str,
+    parser.add_argument('-CHG_pres_abs', type=str,
             help='Path to file with presence/absence data for CHG methylation.')
-    parser.add-argument('-CHH_pres_abs', type=str,
+    parser.add_argument('-CHH_pres_abs', type=str,
             help='Path to file with presence/absence data for CHH methylation.')
-    parser.add-argument('-CG_prop', type=str,
+    parser.add_argument('-CG_prop', type=str,
             help='Path to file with proportion data for CG methylation.')
-    parser.add-argument('-CHG_prop', type=str,
+    parser.add_argument('-CHG_prop', type=str,
             help='Path to file with proportion data for CHG methylation.')
-    parser.add-argument('-CHH_prop', type=str,
+    parser.add_argument('-CHH_prop', type=str,
             help='Path to file with proportion data for CHH methylation.')
     parser.add_argument('-out_loc', type=str,
             help='Path to directory to save the output.')
