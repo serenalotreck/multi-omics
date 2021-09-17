@@ -1,5 +1,5 @@
 """
-Calculate bin statistics for methylation data.
+Calculate bin statistics for methylation data and save as a pickled object.
 
 Author: Serena G. Lotreck 
 """
@@ -8,6 +8,8 @@ import argparse
 
 import pandas as pd 
 from collections import defaultdict
+import pickle
+
 
 def get_column_chunks(all_cols, chunksize):
     """
@@ -158,6 +160,15 @@ def main(gff, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop, CHG_prop,
                 gene.set_methylation_attr(seqid_dff, dataset_name)
 
     # Do binning 
+    for gene in genes:
+        for methylation_type in methylation_datasets.keys():
+            gene.set_bin_stat(methylation_type)
+
+    # Save as pickle objects 
+    pickle_path = f'{out_loc}/{file_prefix}_binned_methylation_gene_objs.pickle'
+    with open(pickle_path, 'wb') as f:
+        pickle.dump(genes, f)
+
 
 if __name__ == '__main__':
 

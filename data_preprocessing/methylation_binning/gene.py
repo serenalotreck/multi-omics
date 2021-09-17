@@ -3,6 +3,11 @@ Gene class definition to use for binning methylation.
 
 Author: Serena G. Lotreck
 """
+import pandas as pd 
+import numpy as np
+import operator 
+import re
+
 
 class Gene:
 
@@ -45,6 +50,7 @@ class Gene:
         parameters:
             methylation_df, df: index is the base pair at which the methylation
                 occurrs, column headers are accessions
+            attr_name, str: name of attribute to set. 
 
         returns: None 
         """
@@ -57,8 +63,63 @@ class Gene:
                                             (methylation_df.index < self.end+500)]
 
         # Set attribute 
-        setttr(self, attr_name, in_near_gene_df)
+        setattr(self, attr_name, in_near_gene_df)
     
+
+    @staticmethod
+    def bin_data_calculate_stat(df, start, end, methylation_type, name_part):
+        """
+        Put data into base pair bins for a section of the gene (upstream, 
+        gene body, downstream). 
+
+        parameters:
+            df, pandas df: the data to bin, accessions are columns and bp
+                is the index 
+            start, int: what base pair is the start of the region to bin
+            end, int: what abse pair is the end of the region to bin 
+            methylation_type, str: name of methylation type this is for. Name 
+                should correspond to one of the methylation dataset attributes.
+            name_part, str: "upstream", "gene_body" or "downstream. Determines 
+                the number of bins, 5 for up and downstream, 20 for gene body.
+
+        returns: 
+            stat_df, df: accessions are rowns, bins are columns
+        """
+        # Determine bin number 
+        num_bins = 20 if name_part == "gene_body" else 5
+
+        # Get the bin boundaries using qcut on all bases in gene 
+        bin_intervals, bins = pd.qcut(pd.Series(np.arange(start, end, 1)), 
+                                    num_bins, retbins=True)
+
+        # Then use bin boundaries with cut on the methylated bases 
+        df.index = pd.cut(df.index, bins=bins, include_lowest=True)
+        
+        # Add columns of zeros for bins with no C's in them 
+        df = df.T
+        num_accs = df.shape[0]
+        df = pd.DataFrame({col_name:(np.zeros(num_accs, dtype=int) \
+                        if col_name not in df.columns.values.tolist() \
+                        else df[col_name].tolist()) for col_name in set(bin_intervals)})
+       
+        # Groupby to get stats
+        if 'pres_abs' in methylation_type:
+            stat_df = df.mean(axis=0).to_frame().T
+        elif 'prop' in methylation_type:
+            stat_df = df.median(axis=0).to_frame().T
+        
+        # Rename bins
+        bin_names = sorted(set(bin_intervals), key=operator.attrgetter('left'))
+        col_bins = {bn:f'{name_part}_bin_{i}' for i, bn in enumerate(bin_names)}
+        stat_df = stat_df.rename(columns=col_bins)
+        
+        # Sort columns 
+        natsort = lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)',s)]
+        sorted_cols = sorted(stat_df.columns.values.tolist(), key=natsort)
+        stat_df = stat_df.reindex(sorted_cols, axis=1)
+        
+        return stat_df
+
 
     def set_bin_stat(self, methylation_type):
         """
@@ -66,10 +127,7 @@ class Gene:
         accessions for a given type of methylation, and assign the result 
         as an attribute.
 
-        NOTE: If there are no C's in a bin, there will be a NaN, as this 
-        seems to more accurately reflect what we're trying to demonstrate
-        rather than putting a 0 there. This may become a problem downstream,
-        which is why I mention it now. 
+        NOTE: If there are no C's in a bin, the values will be set to 0. 
 
         parameters:
             methylation_type, str: name of methylation type to do this for.
@@ -83,48 +141,22 @@ class Gene:
 
         # Separate into in-gene and before/after-gene sites 
         gene_body_df = df.loc[(self.start < df.index) & (df.index < self.end)]
-        upstream_df = df.loc[~(self.start < df.index)]
-        downstream_df = df.loc[~(df.index < self.end)]
+        upstream_df = df.loc[(self.start > df.index) & (self.start-500 < df.index)]
+        downstream_df = df.loc[(df.index > self.end) & (self.end+500 > df.index)]
 
         # Bin and calculate within gene bins
-        
-        ## Within gene body 
-        min_bp = df.bp.min()
-        max_bp = df.bp.max()
-        num_gene_bins = 20
-        gene_body_df.bp = pd.cut(gene_body_df.bp, bins=np.arange(min_bp, max_bp, 
-                    step=(max_bp - min_bp)/num_gene_bins, include_lowest=True))
-        if 'pres_abs' in methylation_type:
-            gene_stat_df = gene_body_df.groupby('bp').mean()
-        elif 'prop' in methylation_type:
-            gene_stat_df = gene_body_df.groupby('bp').median()
-        # Rename bins ##TODO make this work 
-        bins = 
-        gene_bins = {bn:f'gene_body_bin{i}' for i, bn in enumerate(bins)}
-        gene_stat_df = gene_stat_df.T.rename(columns=gene_bins)
+        gene_body_stat_df = Gene.bin_data_calculate_stat(gene_body_df, self.start, 
+                self.end, methylation_type, "gene_body") 
+        up_stat_df = Gene.bin_data_calculate_stat(upstream_df, self.start-500, 
+                self.start, methylation_type, "upstream") 
+        down_stat_df = Gene.bin_data_calculate_stat(downstream_df, self.end, 
+                self.end+500, methylation_type, "downstream") 
 
+        # Combine all df's 
+        overall_stat_df = pd.concat([up_stat_df, gene_body_stat_df, down_stat_df], axis=1)
 
-        ## Upstream 
-        start_range = self.start - 500
-        num_up_bins = 5 # 100bp bins
-        upstream_df.bp = pd.cut(upstream_df.bp, bins=np.arange(start_range, 
-                    self.start, step=(self.start - start_range)/num_up_bins,
-                    include_lowest=True)) 
+        # Set as attribute 
         if 'pres_abs' in methylation_type:
-            up_stat_df = upstream_df.groupby('bp').mean()
+            setattr(self, f'{methylation_type}_mean', overall_stat_df)
         elif 'prop' in methylation_type:
-            up_stat_df = upstream_df.groupby('bp').median()
-        # Rename bins
-        ##TODO
-        
-        ## Downstream 
-        end_range = self.end + 500
-        num_down_bins = 5 # 100bp bins
-        downstream_df.bp = pd.cut(downstream_df.bp, bins=np.arange(self.end, 
-                    end_range, step=(end_range - self.end)/num_down_bins,
-                    include_lowest=True)) 
-        if 'pres_abs' in methylation_type:
-            down_stat_df = downstream_df.groupby('bp').mean()
-        elif 'prop' in methylation_type:
-            down_stat_df = downstream_df.groupby('bp').median()
-        ##TODO
+            setattr(self, f'{methylation_type}_median', overall_stat_df)
