@@ -9,71 +9,27 @@ import argparse
 from gene import Gene
 
 import pandas as pd 
-from collections import defaultdict
 import pickle
 
 
-def get_column_chunks(all_cols, chunksize):
+def check_column_constistency(filepath):
     """
-    Yield a generator that has a list of columns to include in a chunk.
+    Check that all rows have the same number of columns when split by 
+    commas. 
 
     parameters:
-        all_cols, list of str: list of column header names 
-        chunksize, int: number of columns to read in at a time
+        filepath, str: path to file to check 
+
+    returns: True if all rows are the same, False otherwise
     """
-    for i in range(1, len(all_cols), chunksize): # Start at 1 to account for empty first col over index
-        yield all_cols[i:i+chunksize]
-
-
-def read_methylation_file(filepath):
-    """
-    Read in a methylation file and transpose for more efficient handling.
-    Also splits the locus ID's into two, the seqid and the base pair number.
-
-    Assumes the methylation file is of the shape (n_accessions, n_base_pairs),
-    where the column headers are of the form 
-        <Chr#>_<bp#>_<methylation_type>_<+/->
-    and have no quoted commas.                          
-
-    parameters:
-        filepath, str: path to methylation file
-                                                                                        
-    returns: 
-        df, pandas df: methylation df where rows are base pairs and columns
-            are accession IDs
-    """
-    # Read in first row to get the column headers
-    print('\nReading file headers...')
     with open(filepath) as f:
-        header_str = f.readline()
-    headers = header_str.split(',') 
+        lines = readlines()
+    lines = [line.split(',') for line in lines]
 
-    # Read in chunks and concat to one df
-    print('\nReading in file...')
-    for i, use_cols in enumerate(get_column_chunks(headers, 10)):
-        print(f'Reading chunk {i} of {len(headers)//10+1}')
-        # If it's the first chunk, make this the df 
-        if i == 0:
-            # Read in 
-            df = pd.read_csv(filepath, usecols=use_cols)
-            # Transpose 
-            df = df.T
-        # Otherwise, transpose and add to the bottom
-        else:
-            # Read in 
-            df_chunk = pd.read_csv(filepath, usecols=use_cols)
-            # Transpose and append  
-            df = pd.concat([df, df_chunk.T])
-
-    # Split index into multiindex 
-    print('\nSplitting identifiers into chromosome ID and base pair...')
-    chr_idx = [df.index.str.split('_')[0]]
-    bp_idx = [df.index.str.split('_')[1]]
-    df.index = pd.MultiIndex.from_arrays([chr_idx, bp_idx])
-    df.rename_axis(("seqid", "bp"))
-
-    print(f'\nDone! Snapshot of dataframe: df.head()')
-    return df 
+    if len({len(line) for line in lines}) == 1:
+        return True 
+    else:
+        return False 
 
 
 def get_start_row(gff):
@@ -107,8 +63,7 @@ def get_genes(gff):
         gff, str: path to gff file with genomic features.
 
     returns:
-        genes, dict of list: keys are seqid's (e.g. 'Chr1'), values are
-            lists of Gene instances with that seqid
+        genes, list: list of gene objects
     """
     # Determine at what row the data starts
     print('Getting start row...')
@@ -126,10 +81,12 @@ def get_genes(gff):
     
     # Make gene objects 
     print('Making gene objects...')
-    genes = defaultdict(list)
+    genes = []
     for index, row in genes_df.iterrows():
-        gene = Gene(row.at['seqid'], row.at['start'], row.at['end'])
-        genes[row.at['seqid']].append(gene)
+        gene_name = row.at['attributes'][row.at['attributes'].index('Name=')+5:]
+        gene = Gene(row.at['seqid'], row.at['start'], row.at['end'], 
+                row.at['strand'], gene_name)
+        genes.append(gene)
 
     return genes 
 
@@ -148,28 +105,19 @@ def main(gff, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop, CHG_prop,
                             'CG_prop'     : CG_prop, 
                             'CHG_prop'    : CHG_prop,
                             'CHH_prop'    : CHH_prop}
-    methylation_dfs = {}
-    for dataset_name, dataset in methylation_datasets.items():
-        print(f'\nReading in dataset {dataset_name}')
-        methylation_dfs[dataset_name] = read_methylation_file(dataset)
-
-    # Add methylation sites to Gene objects 
-    for seqid in genes.keys():
-        # Filter methylation datasets
-        current_seqid_dfs = {}
-        for dataset_name, df in methylation_dfs.items():
-            filtered_df = df.loc[dataset_name, :] # I have absolutely no idea what this line is doing 
-            current_seqid_dfs[dataset_name] = filtered_df 
-        # Pass to Gene class methods
-        genes_to_check = genes[seqid]
-        for gene in genes_to_check:
-            for dataset_name, seqid_df in current_seqid_dfs.items():
-                gene.set_methylation_attr(seqid_dff, dataset_name)
-
-    # Do binning 
+    
+    # Check that the files are all valid 
+    for dset_name, dset in methylation_datasets.items():
+        assert check_column_constistency(dset), (
+                f'There is at least one row in {dset_name} that has '
+                'a different number of columns than the rest of the data. '
+                'Please fix before continuing.')
+    
+    # Assign methylation attributes and do binning 
     for gene in genes:
-        for methylation_type in methylation_datasets.keys():
-            gene.set_bin_stat(methylation_type)
+        for dset_name, dset in methylation_datasets.items():
+           gene.set_methylation_attr(dset, dset_name)
+           gene.set_bin_stat(dset_name)
 
     # Save as pickle objects 
     pickle_path = f'{out_loc}/{file_prefix}_binned_methylation_gene_objs.pickle'

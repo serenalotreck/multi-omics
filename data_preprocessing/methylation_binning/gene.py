@@ -11,7 +11,7 @@ import re
 
 class Gene:
 
-    def __init__(self, seqid, start, end):
+    def __init__(self, seqid, start, end, strand, name):
         """
         Instantiate an instance of the Gene class. 
 
@@ -19,14 +19,17 @@ class Gene:
             seqid, str: ID from the first column of the gff file 
             start, int: start bp
             end, int: end bp
+            strand, str: '+' or '-'
+            name, str: name of gene 
 
         returns: None
         """
         self.seqid = seqid
         self.start = start
         self.end = end
+        self.strand = strand
+        self.name = name 
 
-        # These will be df's later 
         self.CG_pres_abs = None
         self.CHG_pres_abs = None
         self.CHH_pres_abs = None
@@ -41,29 +44,44 @@ class Gene:
         self.CHH_prop_median = None
 
         
-    def set_methylation_attr(self, methylation_df, attr_name):
+    def set_methylation_attr(self, methylation_dataset, attr_name):
         """
-        Filter methylation dataset by what sites are in this gene, 
-        or within 500bp up- or downstream, and add
-        the resulting df to the attribute corresponding to attr_name.
+        Read in a methylation dataset, filtering by what sites are in this 
+        gene, or within 500bp up- or downstream, and add the resulting df to the 
+        attribute corresponding to attr_name.
 
         parameters:
-            methylation_df, df: index is the base pair at which the methylation
-                occurrs, column headers are accessions
+            methylation_dataset, str: path to methylation dataset to read.
             attr_name, str: name of attribute to set. 
 
         returns: None 
         """
-        # Check datatype of index & change to int if it's not int
-        if methylation_df.index.dtype != 'int64':
-            methylation_df.index = methylation_df.index.astype('int64')
-            
-        # Filter df by whether or not it's in the gene 
-        in_near_gene_df = methylation_df.loc[(self.start-500 < methylation_df.index) & 
-                                            (methylation_df.index < self.end+500)]
+        # Read in first row to get the column headers
+        print('\nReading file headers...')
+        with open(methylation_dataset) as f:
+            header_str = f.readline()
+        headers = header_str.split(',')
+        
+        # Determine what headers to read in 
+        assert self.start < self.end, 'Gene is reversed'
+        h_to_read = [h for h in headers
+                    if (self.start-500 < int(h.split('_')[1]) < self.end+500) 
+                    and self.seqid == h.split('_')[0]]
+
+        # Read in relevant columns
+        dtype = 'int' if 'pres_abs' in attr_name else 'float'
+        df = pd.read_csv(methylation_dataset, usecols=h_to_read, index=0, 
+                dtype=dtype).T
+
+        # Make multiindex with the items from the header names 
+        chr_idx = [df.index.str.split('_')[0]]
+        bp_idx = [df.index.str.split('_')[1]]
+        strand_idx = [df.index.str.split('_')[3]]
+        df.index = pd.MultiIndex.from_arrays([chr_idx, bp_idx, strand_idx], 
+                names=('seqid','bp','strand'))
 
         # Set attribute 
-        setattr(self, attr_name, in_near_gene_df)
+        setattr(self, attr_name, df)
     
 
     @staticmethod
@@ -79,8 +97,8 @@ class Gene:
             end, int: what abse pair is the end of the region to bin 
             methylation_type, str: name of methylation type this is for. Name 
                 should correspond to one of the methylation dataset attributes.
-            name_part, str: "upstream", "gene_body" or "downstream. Determines 
-                the number of bins, 5 for up and downstream, 20 for gene body.
+            name_part, str: "pre", "gene_body" or "post". Determines 
+                the number of bins, 5 for pre and post, 20 for gene body.
 
         returns: 
             stat_df, df: accessions are rowns, bins are columns
@@ -148,9 +166,9 @@ class Gene:
         gene_body_stat_df = Gene.bin_data_calculate_stat(gene_body_df, self.start, 
                 self.end, methylation_type, "gene_body") 
         up_stat_df = Gene.bin_data_calculate_stat(upstream_df, self.start-500, 
-                self.start, methylation_type, "upstream") 
+                self.start, methylation_type, "pre") 
         down_stat_df = Gene.bin_data_calculate_stat(downstream_df, self.end, 
-                self.end+500, methylation_type, "downstream") 
+                self.end+500, methylation_type, "post") 
 
         # Combine all df's 
         overall_stat_df = pd.concat([up_stat_df, gene_body_stat_df, down_stat_df], axis=1)
