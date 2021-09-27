@@ -123,11 +123,40 @@ class TestGene(unittest.TestCase):
     
     def test_set_bin_stat_mean(self):
 
-        pass
+        self.gene.set_methylation_attr(self.CG_pres_abs, 'CG_pres_abs')
+
+        self.gene.set_bin_stat('CG_pres_abs', 20, 5)
+
+        right_ans_dict = {**{f'pre_bin_{i}':[0.0, 0.0] for i in range(5)},
+                          **{**{f'gene_body_bin_{i}':[0.0,0.0] for i in range(18)},
+                             **{'gene_body_bin_18':[1.0,1.0]},
+                             **{'gene_body_bin_19':[0.0,0.0]}},
+                          **{**{f'post_bin_{i}':[0.0,0.0] for i in range(3)},
+                             **{'post_bin_3':[1.0, 0.0]},
+                             **{'post_bin_4':[0.0,0.0]}}}
+        right_answer = pd.DataFrame(right_ans_dict, index=['ac1', 'ac2'])
+
+        assert_frame_equal(self.gene.CG_pres_abs_mean, right_answer)
+
 
     def test_bin_stat_median(self):
     
-        pass
+        self.gene.set_methylation_attr(self.CG_prop, 'CG_prop')
+
+        self.gene.set_bin_stat('CG_prop', 20, 5)
+
+        right_ans_dict = {**{**{f'pre_bin_{i}':[0.0, 0.0] for i in range(4)},
+                             **{'pre_bin_4':[0.45, 0.23]}},
+                          **{**{f'gene_body_bin_{i}':[0.0,0.0] for i in range(18)},
+                             **{'gene_body_bin_18':[0.21,0.67]},
+                             **{'gene_body_bin_19':[0.0,0.0]}},
+                          **{**{f'post_bin_{i}':[0.0,0.0] for i in range(3)},
+                             **{'post_bin_3':[0.97, 0.19]},
+                             **{'post_bin_4':[0.0,0.0]}}}
+        right_answer = pd.DataFrame(right_ans_dict, index=['ac1', 'ac2'])
+
+        assert_frame_equal(self.gene.CG_prop_median, right_answer)
+
 
 if __name__ == '__main__':
     unittest.main()
