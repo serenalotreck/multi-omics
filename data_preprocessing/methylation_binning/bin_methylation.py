@@ -91,8 +91,8 @@ def get_genes(gff):
     return genes 
 
 
-def main(gff, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop, CHG_prop,
-        CHH_prop, out_loc, file_prefix):
+def main(gff, gbb, ppb, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop, 
+        CHG_prop, CHH_prop, out_loc, file_prefix):
 
     # Make gene objects 
     print('\nRetrieving  genes from genome...')
@@ -117,7 +117,7 @@ def main(gff, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop, CHG_prop,
     for gene in genes:
         for dset_name, dset in methylation_datasets.items():
            gene.set_methylation_attr(dset, dset_name)
-           gene.set_bin_stat(dset_name)
+           gene.set_bin_stat(dset_name, gbb, ppb)
 
     # Save as pickle objects 
     pickle_path = f'{out_loc}/{file_prefix}_binned_methylation_gene_objs.pickle'
@@ -131,6 +131,10 @@ if __name__ == '__main__':
 
     parser.add_argument('-gff', type=str,
             help='Path to gff3-formatted file with genomic features.')
+    parser.add_argument('-gbb', type=int, default=20,
+            help='Number of bins to use for the gene body. Default is 20.')
+    parser.add_argument('-ppb', type-int, default=5,
+            help='Number of bins to use for pre and post seqs. Default is 5.')
     parser.add_argument('-CG_pres_abs', type=str,
             help='Path to file with presence/absence data for CG methylation.')
     parser.add_argument('-CHG_pres_abs', type=str,
