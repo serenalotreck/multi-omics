@@ -57,79 +57,82 @@ class Gene:
         returns: None 
         """
         # Read in first row to get the column headers
-        print('\nReading file headers...')
         with open(methylation_dataset) as f:
             header_str = f.readline()
         headers = header_str.split(',')
-        
+        headers = headers[1:] # Drop the empty string over the index 
+        headers = [h.strip() for h in headers] # Strip newlines
+      
         # Determine what headers to read in 
         assert self.start < self.end, 'Gene is reversed'
         h_to_read = [h for h in headers
                     if (self.start-500 < int(h.split('_')[1]) < self.end+500) 
                     and self.seqid == h.split('_')[0]]
+        h_to_read += ['Unnamed: 0']
 
         # Read in relevant columns
         dtype = 'int' if 'pres_abs' in attr_name else 'float'
-        df = pd.read_csv(methylation_dataset, usecols=h_to_read, index=0, 
-                dtype=dtype).T
+        df = pd.read_csv(methylation_dataset, header=0,
+                usecols=h_to_read, index_col=[0]).T
 
-        # Make multiindex with the items from the header names 
-        chr_idx = [df.index.str.split('_')[0]]
-        bp_idx = [df.index.str.split('_')[1]]
-        strand_idx = [df.index.str.split('_')[3]]
+        # Make multiindex with the items from the header names
+        chr_idx = [idx[0] for idx in df.index.str.split('_')]
+        bp_idx = [int(idx[1]) for idx in df.index.str.split('_')]
+        strand_idx = [idx[3] for idx in df.index.str.split('_')]
         df.index = pd.MultiIndex.from_arrays([chr_idx, bp_idx, strand_idx], 
                 names=('seqid','bp','strand'))
-
+        
         # Set attribute 
         setattr(self, attr_name, df)
     
 
     @staticmethod
-    def bin_data_calculate_stat(df, start, end, methylation_type, name_part):
+    def bin_data_calculate_stat(df, start, end, methylation_type, name_part,
+            num_bins):
         """
         Put data into base pair bins for a section of the gene (upstream, 
         gene body, downstream). 
 
         parameters:
-            df, pandas df: the data to bin, accessions are columns and bp
-                is the index 
+            df, pandas df: the data to bin, accessions are columns, index is 
+                a 3-level multiindex of seqid, bp, strand
             start, int: what base pair is the start of the region to bin
             end, int: what abse pair is the end of the region to bin 
             methylation_type, str: name of methylation type this is for. Name 
                 should correspond to one of the methylation dataset attributes.
-            name_part, str: "pre", "gene_body" or "post". Determines 
-                the number of bins, 5 for pre and post, 20 for gene body.
+            name_part, str: "pre", "gene_body" or "post". 
+            num_bins, int: number of bins to split the bp segment into
 
         returns: 
             stat_df, df: accessions are rowns, bins are columns
         """
-        # Determine bin number 
-        num_bins = 20 if name_part == "gene_body" else 5
-
         # Get the bin boundaries using qcut on all bases in gene 
         bin_intervals, bins = pd.qcut(pd.Series(np.arange(start, end, 1)), 
                                     num_bins, retbins=True)
 
+        # Get bin names to pass to cut
+        bin_names = [f'{name_part}_bin_{i}' 
+                    for i in range(len(set(bin_intervals)))]
+
         # Then use bin boundaries with cut on the methylated bases 
-        df.index = pd.cut(df.index, bins=bins, include_lowest=True)
+        bin_idx_values = pd.cut(df.index.get_level_values('bp'), 
+            bins=bins, labels=bin_names, include_lowest=True)
+        bin_df = df.copy(deep=True)
+        bin_df.index = bin_idx_values
         
-        # Add columns of zeros for bins with no C's in them 
-        df = df.T
-        num_accs = df.shape[0]
-        df = pd.DataFrame({col_name:(np.zeros(num_accs, dtype=int) \
-                        if col_name not in df.columns.values.tolist() \
-                        else df[col_name].tolist()) for col_name in set(bin_intervals)})
-       
         # Groupby to get stats
         if 'pres_abs' in methylation_type:
-            stat_df = df.mean(axis=0).to_frame().T
+            stat_df = bin_df.groupby(by=bin_df.index).mean().dropna().T 
+            # T puts bins on columns, acs on rows
         elif 'prop' in methylation_type:
-            stat_df = df.median(axis=0).to_frame().T
+            stat_df = bin_df.groupby(by=bin_df.index).median().dropna().T
         
-        # Rename bins
-        bin_names = sorted(set(bin_intervals), key=operator.attrgetter('left'))
-        col_bins = {bn:f'{name_part}_bin_{i}' for i, bn in enumerate(bin_names)}
-        stat_df = stat_df.rename(columns=col_bins)
+        # Add columns of zeros for bins with no C's in them 
+        num_accs = stat_df.shape[0]
+        stat_df = pd.DataFrame({col_name:(np.zeros(num_accs, dtype=float) \
+                        if col_name not in stat_df.columns.values.tolist() \
+                        else stat_df[col_name].tolist()) for col_name in bin_names},
+                        index=stat_df.index)
         
         # Sort columns 
         natsort = lambda s: [int(t) if t.isdigit() else t.lower() for t in re.split('(\d+)',s)]
@@ -139,7 +142,7 @@ class Gene:
         return stat_df
 
 
-    def set_bin_stat(self, methylation_type):
+    def set_bin_stat(self, methylation_type, gb_bins, pp_bins):
         """
         Separate sites into bins and calculate statistic across bins and 
         accessions for a given type of methylation, and assign the result 
@@ -151,6 +154,8 @@ class Gene:
             methylation_type, str: name of methylation type to do this for.
                 Name should correspond to one of the methylation dataset 
                 attributes. 
+            gb_bins, int: number of bins to use for gene body 
+            pp_bins, int: number of bins to use for pre and post sequences 
 
         returns: None 
         """ 
@@ -158,17 +163,20 @@ class Gene:
         df = getattr(self, methylation_type)
 
         # Separate into in-gene and before/after-gene sites 
-        gene_body_df = df.loc[(self.start < df.index) & (df.index < self.end)]
-        upstream_df = df.loc[(self.start > df.index) & (self.start-500 < df.index)]
-        downstream_df = df.loc[(df.index > self.end) & (self.end+500 > df.index)]
+        gene_body_df = df.loc[(self.start < df.index.get_level_values('bp')) 
+                            & (df.index.get_level_values('bp') < self.end)]
+        upstream_df = df.loc[(self.start > df.index.get_level_values('bp')) 
+                           & (self.start-500 < df.index.get_level_values('bp'))]
+        downstream_df = df.loc[(df.index.get_level_values('bp') > self.end) 
+                           & (self.end+500 > df.index.get_level_values('bp'))]
 
         # Bin and calculate within gene bins
         gene_body_stat_df = Gene.bin_data_calculate_stat(gene_body_df, self.start, 
-                self.end, methylation_type, "gene_body") 
+                self.end, methylation_type, "gene_body", gb_bins) 
         up_stat_df = Gene.bin_data_calculate_stat(upstream_df, self.start-500, 
-                self.start, methylation_type, "pre") 
+                self.start, methylation_type, "pre", pp_bins) 
         down_stat_df = Gene.bin_data_calculate_stat(downstream_df, self.end, 
-                self.end+500, methylation_type, "post") 
+                self.end+500, methylation_type, "post", pp_bins) 
 
         # Combine all df's 
         overall_stat_df = pd.concat([up_stat_df, gene_body_stat_df, down_stat_df], axis=1)

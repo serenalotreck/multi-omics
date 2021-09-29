@@ -5,8 +5,12 @@ Author: Serena G. Lotreck
 """
 import unittest 
 import sys
+import os
+import shutil
+
 sys.path.append('../data_preprocessing/methylation_binning/')
 from gene import Gene
+
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
@@ -15,92 +19,144 @@ class TestGene(unittest.TestCase):
 
     def setUp(self):
 
-        self.CG_pres_abs = pd.DataFrame({'accession1':[1,0,1,1], 
-                                         'accession2':[0,0,1,0]},
-                                        index=[23,553,872,1230])
-        self.CG_prop = pd.DataFrame({'accession1':[0.23,0.45,0.21,0.97],
-                                     'accesion2':[0.65,0.23,0.67,0.19]},
-                                        index=[23,553,872,1230])
-        self.gene = Gene('Chr1', 560, 890)
+        # Create test directory 
+        self.tmpdir = "tmp"
+        os.makedirs(self.tmpdir, exist_ok=False)
+        
+        # Create test files 
+        CG_pres_abs = (',Chr1_23_CG_+,Chr1_553_CG_+,Chr1_872_CG_-,Chr1_1230_CG_+,'
+                'Chr2_720_CG_+\nac1,1,0,1,1,0\nac2,'
+                '0,0,1,0,1')
+        self.CG_pres_abs = f'{self.tmpdir}/CG_pres_abs.csv'
+        with open(self.CG_pres_abs, 'w') as myf:
+            myf.write(CG_pres_abs)
 
-        # Make stat df's to check answers 
-        ## Column headers 
-        up_bin_names = [f'upstream_bin_{i}' for i in range(5)]
-        down_bin_names = [f'downstream_bin_{i}' for i in range(5)]
-        gene_bin_names = [f'gene_body_bin_{i}' for i in range(20)]
-        columns = up_bin_names + gene_bin_names + down_bin_names
-        ## Data
-        up_mean = [float(i) for i in [0, 0, 0, 0, 0]]
-        down_mean = [float(i) for i in [0, 0, 0, 0.5, 0]]
-        gene_mean = [float(i) for i in [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 1, 0]]
-        up_median = [float(i) for i in [0, 0, 0, 0, 0.34]]
-        down_median = [float(i) for i in [0, 0, 0, 0.58, 0]]
-        gene_median = [float(i) for i in [0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0.44, 0]]
-        ## Dataframes 
-        self.setattr_CG_pres_abs = pd.DataFrame({'accession1':[0,1,1],
-                                                'accession2':[0,1,0]},
-                                                index=[553,872,1230])
-        self.up_stat_df_mean = pd.DataFrame([up_mean], columns=up_bin_names)
-        self.gene_stat_df_mean = pd.DataFrame([gene_mean], columns=gene_bin_names)
-        self.down_stat_df_median = pd.DataFrame([down_median], columns=down_bin_names)
-        self.CG_pres_abs_mean = pd.DataFrame([up_mean+gene_mean+down_mean], 
-                columns=columns)
-        self.CG_prop_median = pd.DataFrame([up_median+gene_median+down_median], 
-                columns=columns)
+        CG_prop = (',Chr1_23_CG_+,Chr1_553_CG_+,Chr1_872_CG_-,Chr1_1230_CG_+,'
+                'Chr2_720_CG_+\nac1,0.23,0.45,0.21,0.97,0.11\nac2,'
+                '0.65,0.23,0.67,0.19,0.87')   
+        self.CG_prop = f'{self.tmpdir}/CG_prop.csv'
+        with open(self.CG_prop, 'w') as myf:
+            myf.write(CG_prop)
+        
+        # Create the Gene instance
+        self.gene = Gene('Chr1', 560, 890, '+', 'AT102947')
 
 
+    def tearDown(self):
+
+        shutil.rmtree(self.tmpdir)
+
+        
     def test_set_methylation_attr(self):
 
         self.gene.set_methylation_attr(self.CG_pres_abs, 'CG_pres_abs')
+
+        right_answer = pd.DataFrame({'ac1':[0,1,1], 'ac2':[0,1,0]},
+                index=pd.MultiIndex.from_arrays([['Chr1','Chr1','Chr1'],
+                                                 [553, 872, 1230],
+                                                 ['+', '-', '+']],
+                                                names=('seqid', 'bp', 'strand')))
         
-        assert_frame_equal(self.gene.CG_pres_abs, self.setattr_CG_pres_abs)
+        assert_frame_equal(self.gene.CG_pres_abs, right_answer)
 
 
-    def test_bin_data_calculate_stat_upstream_mean(self):
+    def test_bin_data_calculate_stat_pre_mean(self):
 
-        upstream_df = self.setattr_CG_pres_abs.loc[(self.gene.start > 
-            self.setattr_CG_pres_abs.index) & (self.gene.start-500 < 
-            self.setattr_CG_pres_abs.index)]
-        up_stat_df_mean = self.gene.bin_data_calculate_stat(upstream_df,
-                self.gene.start-500, self.gene.start, 'CG_pres_abs', 'upstream')
+        self.gene.set_methylation_attr(self.CG_pres_abs, 'CG_pres_abs')
         
-        assert_frame_equal(up_stat_df_mean, self.up_stat_df_mean)
+        pre_df = self.gene.CG_pres_abs.loc[(self.gene.start > 
+            self.gene.CG_pres_abs.index.get_level_values('bp')) & 
+            (self.gene.start-500 < 
+            self.gene.CG_pres_abs.index.get_level_values('bp'))]
+        
+        pre_stat_df_mean = self.gene.bin_data_calculate_stat(pre_df,
+                self.gene.start-500, self.gene.start, 'CG_pres_abs', 'pre', 5)
+        
+        right_answer = pd.DataFrame({f'pre_bin_{i}':[0.0, 0.0] for i in range(5)},
+                index=['ac1','ac2'])
+
+        # Don't check dtype because if mean or median functions are used on only 
+        # one item, if that item is an int, the result is an int
+        assert_frame_equal(pre_stat_df_mean, right_answer, check_dtype=False)
 
 
     def test_bin_data_calculate_stat_gene_mean(self):
+       
+        self.gene.set_methylation_attr(self.CG_pres_abs, 'CG_pres_abs')
         
-        gene_body_df = self.CG_pres_abs.loc[(self.gene.start < 
-            self.CG_pres_abs.index) & (self.CG_pres_abs.index < self.gene.end)]
+        gene_body_df = self.gene.CG_pres_abs.loc[(self.gene.start < 
+            self.gene.CG_pres_abs.index.get_level_values('bp')) & 
+            (self.gene.CG_pres_abs.index.get_level_values('bp') < 
+            self.gene.end)]
+        
         gene_stat_df_mean = self.gene.bin_data_calculate_stat(gene_body_df,
-                self.gene.start, self.gene.end, 'CG_pres_abs', 'gene_body')
+                self.gene.start, self.gene.end, 'CG_pres_abs', 'gene_body', 20)
 
-        assert_frame_equal(gene_stat_df_mean, self.gene_stat_df_mean)
+
+        right_ans_dicts = {**{f'gene_body_bin_{i}':[0.0,0.0] for i in range(18)},
+                        **{'gene_body_bin_18':[1.0,1.0]},
+                        **{'gene_body_bin_19':[0.0,0.0]}}
+        right_answer = pd.DataFrame(right_ans_dicts, index=['ac1','ac2'])
+            
+        assert_frame_equal(gene_stat_df_mean, right_answer, check_dtype=False)
     
     
-    def test_bin_data_calculate_stat_downstream_median(self):
+    def test_bin_data_calculate_stat_post_median(self):
 
-        downstream_df = self.CG_prop.loc[(self.gene.end < 
-            self.CG_prop.index) & (self.gene.end+500 > self.CG_prop.index)]
-        down_stat_df_median = self.gene.bin_data_calculate_stat(downstream_df,
-                self.gene.end, self.gene.end+500, 'CG_prop', 'downstream')
+        self.gene.set_methylation_attr(self.CG_prop, 'CG_prop')
+        
+        post_df = self.gene.CG_prop.loc[(self.gene.end < 
+            self.gene.CG_prop.index.get_level_values('bp')) 
+            & (self.gene.end+500 > self.gene.CG_prop.index.get_level_values('bp'))]
+        
+        post_stat_df_median = self.gene.bin_data_calculate_stat(post_df,
+                self.gene.end, self.gene.end+500, 'CG_prop', 'post', 5)
 
-        assert_frame_equal(down_stat_df_median, self.down_stat_df_median)
+
+        right_ans_dict = {**{f'post_bin_{i}':[0.0,0.0] for i in range(3)},
+                          **{'post_bin_3':[0.97, 0.19]},
+                          **{'post_bin_4':[0.0,0.0]}}
+        right_answer = pd.DataFrame(right_ans_dict, index=['ac1','ac2'])
+
+        assert_frame_equal(post_stat_df_median, right_answer, check_dtype=False)
     
     
     def test_set_bin_stat_mean(self):
 
         self.gene.set_methylation_attr(self.CG_pres_abs, 'CG_pres_abs')
-        self.gene.set_bin_stat("CG_pres_abs")
 
-        assert_frame_equal(self.gene.CG_pres_abs_mean, self.CG_pres_abs_mean)
+        self.gene.set_bin_stat('CG_pres_abs', 20, 5)
+
+        right_ans_dict = {**{f'pre_bin_{i}':[0.0, 0.0] for i in range(5)},
+                          **{**{f'gene_body_bin_{i}':[0.0,0.0] for i in range(18)},
+                             **{'gene_body_bin_18':[1.0,1.0]},
+                             **{'gene_body_bin_19':[0.0,0.0]}},
+                          **{**{f'post_bin_{i}':[0.0,0.0] for i in range(3)},
+                             **{'post_bin_3':[1.0, 0.0]},
+                             **{'post_bin_4':[0.0,0.0]}}}
+        right_answer = pd.DataFrame(right_ans_dict, index=['ac1', 'ac2'])
+
+        assert_frame_equal(self.gene.CG_pres_abs_mean, right_answer)
 
 
     def test_bin_stat_median(self):
-
+    
         self.gene.set_methylation_attr(self.CG_prop, 'CG_prop')
-        self.gene.set_bin_stat("CG_prop")
 
-        assert_frame_equal(self.gene.CG_prop_median, self.CG_prop_median)
+        self.gene.set_bin_stat('CG_prop', 20, 5)
+
+        right_ans_dict = {**{**{f'pre_bin_{i}':[0.0, 0.0] for i in range(4)},
+                             **{'pre_bin_4':[0.45, 0.23]}},
+                          **{**{f'gene_body_bin_{i}':[0.0,0.0] for i in range(18)},
+                             **{'gene_body_bin_18':[0.21,0.67]},
+                             **{'gene_body_bin_19':[0.0,0.0]}},
+                          **{**{f'post_bin_{i}':[0.0,0.0] for i in range(3)},
+                             **{'post_bin_3':[0.97, 0.19]},
+                             **{'post_bin_4':[0.0,0.0]}}}
+        right_answer = pd.DataFrame(right_ans_dict, index=['ac1', 'ac2'])
+
+        assert_frame_equal(self.gene.CG_prop_median, right_answer)
+
 
 if __name__ == '__main__':
     unittest.main()
