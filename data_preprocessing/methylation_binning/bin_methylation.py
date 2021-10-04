@@ -9,27 +9,8 @@ import argparse
 from gene import Gene
 
 import pandas as pd 
+import datatable as dt
 import pickle
-
-
-def check_column_constistency(filepath):
-    """
-    Check that all rows have the same number of columns when split by 
-    commas. 
-
-    parameters:
-        filepath, str: path to file to check 
-
-    returns: True if all rows are the same, False otherwise
-    """
-    with open(filepath) as f:
-        lines = readlines()
-    lines = [line.split(',') for line in lines]
-
-    if len({len(line) for line in lines}) == 1:
-        return True 
-    else:
-        return False 
 
 
 def get_start_row(gff):
@@ -99,6 +80,7 @@ def main(gff, gbb, ppb, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop,
     genes = get_genes(gff)
 
     # Read in methylation datasets 
+    print('\nReading in methylation datasets...')
     methylation_datasets = {'CG_pres_abs' : CG_pres_abs, 
                             'CHG_pres_abs': CHG_pres_abs, 
                             'CHH_pres_abs': CHH_pres_abs, 
@@ -106,15 +88,24 @@ def main(gff, gbb, ppb, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop,
                             'CHG_prop'    : CHG_prop,
                             'CHH_prop'    : CHH_prop}
     
-    # Check that the files are all valid 
     for dset_name, dset in methylation_datasets.items():
-        assert check_column_constistency(dset), (
-                f'There is at least one row in {dset_name} that has '
-                'a different number of columns than the rest of the data. '
-                'Please fix before continuing.')
+        print(f'Reading in {dset_name}...') 
+        # Read in dataset with datatable and make into a pandas df 
+        dset_df = dt.fread(dset).to_pandas().set_index('C0').T ## TODO make sure this works 
+        print(dset_df.head())
+        print('Making multiindex...')
+        chr_idx = [idx[0] for idx in dset_df.index.str.split('_')]
+        bp_idx = [int(idx[1]) for idx in dset_df.index.str.split('_')]
+        strand_idx = [idx[3] for idx in dset_df.index.str.split('_')]
+        dset_df.index = pd.MultiIndex.from_arrays([chr_idx, bp_idx, strand_idx],
+                                            names=('seqid','bp','strand'))
+        # Assign back to dict 
+        methylation_datasets[dset_name] = dset_df
     
     # Assign methylation attributes and do binning 
-    for gene in genes:
+    print('\nBinning data...')
+    for i, gene in enumerate(genes):
+        print(f'Working on gene {i} of {len(genes)}')
         for dset_name, dset in methylation_datasets.items():
            gene.set_methylation_attr(dset, dset_name)
            gene.set_bin_stat(dset_name, gbb, ppb)
@@ -133,7 +124,7 @@ if __name__ == '__main__':
             help='Path to gff3-formatted file with genomic features.')
     parser.add_argument('-gbb', type=int, default=20,
             help='Number of bins to use for the gene body. Default is 20.')
-    parser.add_argument('-ppb', type-int, default=5,
+    parser.add_argument('-ppb', type=int, default=5,
             help='Number of bins to use for pre and post seqs. Default is 5.')
     parser.add_argument('-CG_pres_abs', type=str,
             help='Path to file with presence/absence data for CG methylation.')

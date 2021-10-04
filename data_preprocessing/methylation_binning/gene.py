@@ -44,46 +44,26 @@ class Gene:
         self.CHH_prop_median = None
 
         
-    def set_methylation_attr(self, methylation_dataset, attr_name):
+    def set_methylation_attr(self, methylation_df, attr_name):
         """
-        Read in a methylation dataset, filtering by what sites are in this 
+        Filter a methylation dataset by what sites are in this 
         gene, or within 500bp up- or downstream, and add the resulting df to the 
         attribute corresponding to attr_name.
 
         parameters:
-            methylation_dataset, str: path to methylation dataset to read.
+            methylation_ddf, pandas df: dataframe with methylation data.
             attr_name, str: name of attribute to set. 
 
         returns: None 
         """
-        # Read in first row to get the column headers
-        with open(methylation_dataset) as f:
-            header_str = f.readline()
-        headers = header_str.split(',')
-        headers = headers[1:] # Drop the empty string over the index 
-        headers = [h.strip() for h in headers] # Strip newlines
-      
-        # Determine what headers to read in 
-        assert self.start < self.end, 'Gene is reversed'
-        h_to_read = [h for h in headers
-                    if (self.start-500 < int(h.split('_')[1]) < self.end+500) 
-                    and self.seqid == h.split('_')[0]]
-        h_to_read += ['Unnamed: 0']
-
-        # Read in relevant columns
-        dtype = 'int' if 'pres_abs' in attr_name else 'float'
-        df = pd.read_csv(methylation_dataset, header=0,
-                usecols=h_to_read, index_col=[0]).T
-
-        # Make multiindex with the items from the header names
-        chr_idx = [idx[0] for idx in df.index.str.split('_')]
-        bp_idx = [int(idx[1]) for idx in df.index.str.split('_')]
-        strand_idx = [idx[3] for idx in df.index.str.split('_')]
-        df.index = pd.MultiIndex.from_arrays([chr_idx, bp_idx, strand_idx], 
-                names=('seqid','bp','strand'))
+        # Filter by where the methylation sites are 
+        in_near_gene_df = methylation_df.loc[
+                (self.start-500 < methylation_df.index.get_level_values("bp")) & 
+                (methylation_df.index.get_level_values("bp") < self.end+500) &
+                (methylation_df.index.get_level_values("seqid") == self.seqid)]
         
         # Set attribute 
-        setattr(self, attr_name, df)
+        setattr(self, attr_name, in_near_gene_df)
     
 
     @staticmethod
@@ -106,7 +86,7 @@ class Gene:
         returns: 
             stat_df, df: accessions are rowns, bins are columns
         """
-        # Get the bin boundaries using qcut on all bases in gene 
+        # Get the bin boundaries using qcut on all bases in gene
         bin_intervals, bins = pd.qcut(pd.Series(np.arange(start, end, 1)), 
                                     num_bins, retbins=True)
 

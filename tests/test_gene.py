@@ -7,6 +7,7 @@ import unittest
 import sys
 import os
 import shutil
+import io
 
 sys.path.append('../data_preprocessing/methylation_binning/')
 from gene import Gene
@@ -21,22 +22,28 @@ class TestGene(unittest.TestCase):
 
         # Create test directory 
         self.tmpdir = "tmp"
-        os.makedirs(self.tmpdir, exist_ok=False)
+        os.makedirs(self.tmpdir, exist_ok=True)
         
         # Create test files 
-        CG_pres_abs = (',Chr1_23_CG_+,Chr1_553_CG_+,Chr1_872_CG_-,Chr1_1230_CG_+,'
+        CG_pres_abs = io.StringIO(',Chr1_23_CG_+,Chr1_553_CG_+,Chr1_872_CG_-,Chr1_1230_CG_+,'
                 'Chr2_720_CG_+\nac1,1,0,1,1,0\nac2,'
                 '0,0,1,0,1')
-        self.CG_pres_abs = f'{self.tmpdir}/CG_pres_abs.csv'
-        with open(self.CG_pres_abs, 'w') as myf:
-            myf.write(CG_pres_abs)
+        self.CG_pres_abs = pd.read_csv(CG_pres_abs, index_col=0).T
+        chr_idx = [idx[0] for idx in self.CG_pres_abs.index.str.split('_')]
+        bp_idx = [int(idx[1]) for idx in self.CG_pres_abs.index.str.split('_')]
+        strand_idx = [idx[3] for idx in self.CG_pres_abs.index.str.split('_')]
+        self.CG_pres_abs.index = pd.MultiIndex.from_arrays([chr_idx, bp_idx, strand_idx],
+                                                             names=('seqid','bp','strand'))
 
-        CG_prop = (',Chr1_23_CG_+,Chr1_553_CG_+,Chr1_872_CG_-,Chr1_1230_CG_+,'
+        CG_prop = io.StringIO(',Chr1_23_CG_+,Chr1_553_CG_+,Chr1_872_CG_-,Chr1_1230_CG_+,'
                 'Chr2_720_CG_+\nac1,0.23,0.45,0.21,0.97,0.11\nac2,'
                 '0.65,0.23,0.67,0.19,0.87')   
-        self.CG_prop = f'{self.tmpdir}/CG_prop.csv'
-        with open(self.CG_prop, 'w') as myf:
-            myf.write(CG_prop)
+        self.CG_prop = pd.read_csv(CG_prop, index_col=0).T
+        chr_idx = [idx[0] for idx in self.CG_prop.index.str.split('_')]
+        bp_idx = [int(idx[1]) for idx in self.CG_prop.index.str.split('_')]
+        strand_idx = [idx[3] for idx in self.CG_prop.index.str.split('_')]
+        self.CG_prop.index = pd.MultiIndex.from_arrays([chr_idx, bp_idx, strand_idx],
+                                                             names=('seqid','bp','strand'))
         
         # Create the Gene instance
         self.gene = Gene('Chr1', 560, 890, '+', 'AT102947')
