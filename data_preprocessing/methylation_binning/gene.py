@@ -166,3 +166,34 @@ class Gene:
             setattr(self, f'{methylation_type}_mean', overall_stat_df)
         elif 'prop' in methylation_type:
             setattr(self, f'{methylation_type}_median', overall_stat_df)
+
+
+    def reverse_datasets(self):
+        """
+        Reverses the order of the bins in the summary df's if the gene is on 
+        the - strand. 
+        
+        parameters: self
+
+        returns: None
+        """
+        # Define the attributes to change 
+        stat_dfs = ['CG_pres_abs_mean', 'CG_prop_median', 'CHG_pres_abs_mean', 
+                    'CHG_prop_median', 'CHH_pres_abs_mean', 'CHH_prop_median']
+        
+        # Check if the gene needs to be reversed 
+        if self.strand == '-':
+            for attr in stat_dfs:
+                # Get the attribute df 
+                df = getattr(self, attr)
+                # Rename the columns in reverse order 
+                df_new_cols = df.columns.values.tolist().reverse()
+                df = df.set_axis(df_new_cols, axis=1)
+                # Reverse so they're in natsorted order again 
+                df = df[df.columns[::-1]]
+                # Reassign attribute 
+                setattr(self, attr, df)
+
+
+
+            
