@@ -5,7 +5,10 @@ Author: Serena G. Lotreck
 """
 import argparse
 from os.path import abspath
+import sys 
 
+sys.path.append('../methylation_binning/')
+import gene
 import pandas as pd 
 import pickle
 
@@ -39,7 +42,7 @@ def make_new_cols(df):
     return new_cols
 
 
-def make_feature_tables(genes):
+def make_feature_matrices(genes):
     """
     Make feature matrices for all 6 datasets.
 
@@ -50,6 +53,7 @@ def make_feature_tables(genes):
         data, dict: keys are attribute names, values are full feature matrices 
     """
     # Initialize variables for feature tables
+    print('Initializing loop variables...')
     data = {'CG_pres_abs_mean' :None,
             'CG_prop_median'   :None,
             'CHG_pres_abs_mean':None,
@@ -58,13 +62,16 @@ def make_feature_tables(genes):
             'CHH_prop_median'  :None}
 
     # Loop over genes and add to tables 
-    for i, gene in enumerate(genes):
+    print('Looping over genes to build feature matrices...')
+    for gene in genes:
+        print('my name is elder brown')
 
         # Check and reverse strands if necessary
         gene.reverse_datasets()
 
         # Make a dict for renaming columns 
         new_cols = make_new_cols(gene.CG_pres_abs_mean) 
+        
         # If it's the first one, make it the df 
         if i == 0:
 
@@ -105,8 +112,10 @@ def loadall(filename):
     with open(filename, "rb") as f:
         while True:
             try:
+                print('getting that  pickle')
                 yield pickle.load(f)
             except EOFError:
+                print('exception reached')
                 break
 
             
