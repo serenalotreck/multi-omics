@@ -1,11 +1,11 @@
 # iRF
-## install the irf
+## Install the irf
 	pip install irf
 
-### if scikit-learn is needed, make sure that the version of scikit-learn is lower than 0.24, since the presort parameter has been deprecated and removed from the 0.24 scikit-learn. Try the below one:
+#### if scikit-learn is needed, make sure that the version of scikit-learn is lower than 0.24, since the presort parameter has been deprecated and removed from the 0.24 scikit-learn. Try the below one:
 	pip install scikit-learn==0.23.2
 
-### For the hpcc user, you can use this: 
+#### For the hpcc user, you can use this: 
 	source /mnt/home/peipeiw/Documents/Ath_GS/IRF/IRF/bin/activate
  
 ## Run the iRF to get the weights of the features for each iteration, and the stability scores of feature combinations
