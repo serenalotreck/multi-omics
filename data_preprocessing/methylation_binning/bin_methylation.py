@@ -8,6 +8,7 @@ import argparse
 
 from gene import Gene
 
+import datetime
 import pandas as pd
 import datatable as dt
 import pickle
@@ -42,12 +43,16 @@ def make_new_cols(df):
     return new_cols
 
 
-def make_feature_matrices(genes):
+def bin_and_make_feature_matrices(genes, methylation_datasets, gbb, ppb):
     """
     Make feature matrices for all 6 datasets.
 
     parameters:
         genes, generator of Gene obj: genes to use to make feature matrices
+        methylation_datasets, dict: keys are methylation attribute names,
+            values are methylation df's
+        gbb, int: number of bins for gene body
+        ppb, int: number of bins for pre and post sequences
 
     returns:
         data, dict: keys are attribute names, values are full feature matrices
@@ -67,7 +72,12 @@ def make_feature_matrices(genes):
     print('Looping over genes to build feature matrices...')
     for i, gene in enumerate(genes):
 
-        print(f'Reading gene {i} of {len(genes)-1}')
+        print(f'Working on gene {i} of {len(genes)}')
+
+        # Do binning 
+        for dset_name, dset in methylation_datasets.items():
+            gene.set_methylation_attr(dset, dset_name)
+            gene.set_bin_stat(dset_name, gbb, ppb)
 
         # Check and reverse strands if necessary
         gene.reverse_datasets()
@@ -83,11 +93,19 @@ def make_feature_matrices(genes):
                 # Get the df
                 df = getattr(gene, attr_name)
 
+                # Rename index 
+                df.index.names = ['accession'] ## TODO fix the fact that this
+                ## results in a "Unnamed: 0 column" instead of one named
+                ## 'accession'
+
                 # Rename cols with shorthand names
                 df = df.rename(columns=new_cols)
 
                 # Add prefix
                 df = df.add_prefix(f'{gene.name}_{attr_name}_')
+
+                # Transpose df
+                df = df.T
 
                 # Assign back to dict
                 data[attr_name] = df
@@ -105,8 +123,11 @@ def make_feature_matrices(genes):
                 # Add prefix
                 df = df.add_prefix(f'{gene.name}_{attr_name}_')
 
+                # Transpose df 
+                df = df.T
+
                 # Concat onto existing df
-                df = pd.concat((data[attr_name], df), axis=1)
+                df = pd.concat((data[attr_name], df), axis=0)
 
                 # Put back in dict
                 data[attr_name] = df
@@ -221,6 +242,8 @@ def get_genes(gff):
 def main(gff, gbb, ppb, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop,
          CHG_prop, CHH_prop, out_loc, file_prefix):
 
+    begin_time = datetime.datetime.now()
+
     # Make gene objects
     print('\nRetrieving  genes from genome...')
     genes = get_genes(gff)
@@ -235,26 +258,21 @@ def main(gff, gbb, ppb, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop,
         'CHG_prop': CHG_prop,
         'CHH_prop': CHH_prop
     }
+    methylation_datasets = read_methylation_datasets(methylation_datasets)
 
-
-    # Assign methylation attributes and do binning
-    print('\nBinning data...')
-    for i, gene in enumerate(genes):
-        print(f'Working on gene {i} of {len(genes)}')
-        for dset_name, dset in methylation_datasets.items():
-            gene.set_methylation_attr(dset, dset_name)
-            gene.set_bin_stat(dset_name, gbb, ppb)
-
-    # Make feature matrices
-    print('\nMaking feature matrices...')
-    feature_matrices = make_feature_matrices(genes)
+    # Assign methylation attributes, bin and make feature tables
+    print('\nBinning data and making feature tables...')
+    feature_matrices = bin_and_make_feature_matrices(genes,
+            methylation_datasets, gbb, ppb)
 
     # Save feature matrices
     print('\nSaving feature matrices...')
     for name, df in feature_matrices.items():
         df.to_csv(f'{out_loc}/{file_prefix}_{name}_feature_matrix.csv')
 
-    print('\nDone!')
+    end_time = datetime.datetime.now()
+
+    print(f'\nDone rowwise in {end_time - begin_time} seconds')
 
 
 if __name__ == '__main__':
