@@ -1,6 +1,14 @@
 # GCN for Classification from praxidike97 on GitHub adapted for regression
 # Source: https://github.com/praxidike97/GraphNeuralNet/blob/master/main.py
 # To run on command line if error: CUDA_LAUNCH_BLOCKING=1 python multi-omics/GCN/praxidike97_gcn.py 
+""" 
+Classification: run on Planetoid data
+Info: 
+- Data(x=[2708, 1433], edge_index=[2, 10556], y=[2708], train_mask=[2708], val_mask=[2708], test_mask=[2708])
+- num_node_features = 1433; num_classes = 7
+
+Regression: run on genotype data
+"""
 from torch_geometric.data.in_memory_dataset import InMemoryDataset
 from torch_geometric.datasets import Planetoid
 import torch
@@ -9,7 +17,7 @@ import torch.nn.functional as F
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import add_self_loops, degree
 from torch_geometric.data import InMemoryDataset, Data
-from torch_geometric.nn import GCNConv
+#from torch_geometric.nn import GCNConv # graph convolutional layer
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
@@ -18,7 +26,7 @@ import pandas as pd
 import datatable as dt
 from sklearn.model_selection import train_test_split
 
-# Graph convolutional layer
+# Custom graph convolutional layer
 class GCNConv(MessagePassing):
     def __init__(self, in_channels, out_channels):
         super(GCNConv, self).__init__(aggr='add')  # "Add" aggregation
@@ -33,24 +41,28 @@ class GCNConv(MessagePassing):
 
         # Step 3: Calculate the normalization
         row, col = edge_index
-        deg = degree(row, x.size(0), dtype=x.dtype) # this step here is not working with genotype data
+        deg = degree(row, x.size(0), dtype=x.dtype) ####### this step here is not working with genotype data, but everything works for planetoid data
         deg_inv_sqrt = deg.pow(-0.5)
         norm = deg_inv_sqrt[row] * deg_inv_sqrt[col]
 
         # Step 4: Propagate the embeddings to the next layer
         return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x,
-                              norm=norm
+                              norm=norm)
 
     def message(self, x_j, norm):
         # Normalize node features.
         return norm.view(-1, 1) * x_j
 
-# GCN Model
+# GCN Model two-layers
 class Net(torch.nn.Module):
     def __init__(self, dataset):
         super(Net, self).__init__()
-        self.conv1 = GCNConv(1000, 400)#dataset.num_node_features, 16)
-        self.conv2 = GCNConv(400, 319)#16, dataset.num_classes)
+        # for classification
+        #self.conv1 = GCNConv(dataset.num_node_features, 16)
+        #self.conv2 = GCNConv(16, dataset.num_classes)
+        # for regression
+        self.conv1 = GCNConv(1000, 400)
+        self.conv2 = GCNConv(400, 319)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -59,7 +71,7 @@ class Net(torch.nn.Module):
         x = F.dropout(x, training=self.training)
         x = self.conv2(x, edge_index)
 
-        return x #F.log_softmax(x, dim=1) # paired with nll_loss function
+        return x #F.log_softmax(x, dim=1) # softmax paired with nll_loss function for classification
 
 # Graph of dataset
 def plot_dataset(dataset):
@@ -231,13 +243,11 @@ if __name__ == "__main__":
     f = r-a  # free inside reserved
     print(t, r, a, f)
 
-    # planetoid data
+    # Classification: planetoid data
     #dataset = Planetoid(root='/tmp/Cora', name='Cora') # load dataset (2708 nodes/input tensor vars, 1433 instances)
     #data = dataset[0].to(device)
-    #Data(x=[2708, 1433], edge_index=[2, 10556], y=[2708], train_mask=[2708], val_mask=[2708], test_mask=[2708])
-    #num_node_features = 1433; num_classes = 7
     
-    # genotype data
+    # Regression: genotype data
     dataset = test_geno()
     data = dataset.cuda(device)
 
