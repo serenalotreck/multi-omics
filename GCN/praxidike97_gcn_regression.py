@@ -39,7 +39,7 @@ class GCNConv(MessagePassing):
 
         # Step 4: Propagate the embeddings to the next layer
         return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x,
-                              norm=norm)
+                              norm=norm
 
     def message(self, x_j, norm):
         # Normalize node features.
