@@ -1,14 +1,13 @@
 # GCN for Classification from praxidike97 on GitHub adapted for regression
 # Source: https://github.com/praxidike97/GraphNeuralNet/blob/master/main.py
 # To run on command line if error: CUDA_LAUNCH_BLOCKING=1 python multi-omics/GCN/praxidike97_gcn.py 
-from torch_geometric.data.in_memory_dataset import InMemoryDataset
-from torch_geometric.datasets import Planetoid
 import torch
 from torch import tensor
 import torch.nn.functional as F
+from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import add_self_loops, degree
-from torch_geometric.data import InMemoryDataset, Data
+from torch_geometric.data import Data
 from torch_geometric.nn import GCNConv
 import networkx as nx
 import numpy as np
@@ -16,13 +15,12 @@ import matplotlib.pyplot as plt
 import time
 import pandas as pd
 import datatable as dt
-from sklearn.model_selection import train_test_split
 
 # Graph convolutional layer
 class GCNConv(MessagePassing):
     def __init__(self, in_channels, out_channels):
         super(GCNConv, self).__init__(aggr='add')  # "Add" aggregation
-        self.lin = torch.nn.Linear(in_channels, out_channels)
+        self.lin = torch.nn.Linear(in_channels, out_channels) # linear transformation
 
     def forward(self, x, edge_index):
         # Step 1: Add self-loops
@@ -33,13 +31,16 @@ class GCNConv(MessagePassing):
 
         # Step 3: Calculate the normalization
         row, col = edge_index
+        #print("row", row, row.size())
+        #print("col", col, col.size())
+        #print("x", x, x.size())
         deg = degree(row, x.size(0), dtype=x.dtype) # this step here is not working with genotype data
         deg_inv_sqrt = deg.pow(-0.5)
         norm = deg_inv_sqrt[row] * deg_inv_sqrt[col]
 
         # Step 4: Propagate the embeddings to the next layer
         return self.propagate(edge_index, size=(x.size(0), x.size(0)), x=x,
-                              norm=norm
+                              norm=norm)
 
     def message(self, x_j, norm):
         # Normalize node features.
@@ -49,17 +50,29 @@ class GCNConv(MessagePassing):
 class Net(torch.nn.Module):
     def __init__(self, dataset):
         super(Net, self).__init__()
-        self.conv1 = GCNConv(1000, 400)#dataset.num_node_features, 16)
-        self.conv2 = GCNConv(400, 319)#16, dataset.num_classes)
+        # for classification
+        #self.conv1 = GCNConv(dataset.num_node_features, 16) 
+        #self.conv2 = GCNConv(16, dataset.num_classes)
+        # for regression
+        self.conv1 = GCNConv(1000, 400) 
+        self.conv2 = GCNConv(400, 7)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
+        #print("x", x, x.size())
+        #print("edge_index", edge_index, edge_index.size())
         x = self.conv1(x, edge_index)
+        #print("layer1", x, x.size())
         x = F.relu(x)
+        #print("relu", x, x.size())
         x = F.dropout(x, training=self.training)
+        #print("regularization", x, x.size())
         x = self.conv2(x, edge_index)
-
-        return x #F.log_softmax(x, dim=1) # paired with nll_loss function
+        #print("layer2", x, x.size())
+        
+        #return x # for regression
+        return F.log_softmax(x, dim=1) # paired with nll_loss function for classification
+        
 
 # Graph of dataset
 def plot_dataset(dataset):
@@ -101,8 +114,11 @@ def train(data, plot=False):
         model.train()
         optimizer.zero_grad()
         out = model(data)
-        loss = torch.nn.MSELoss(out[data.train_mask], data.y[data.train_mask]) # for regression
-        #loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask]) # for classification
+        #print("out", out, out.size())
+        #loss = torch.nn.MSELoss()
+        #output = loss(out[data.train_mask], data.y[data.train_mask]) # for regression
+        #output.backward()
+        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask]) # for classification
         loss.backward()
         optimizer.step()
 
@@ -188,6 +204,8 @@ def gen_adj_mat_tensor(data, parameter, metric="cosine"):
 def test_geno():
     geno_data="SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv"
     pheno_data="Phenotype_value_383_common_accessions_2017_Grimm.csv"
+    test_mask="test_20perc.txt"
+    test_mask = pd.read_csv(test_mask, header=None)
     geno = dt.fread(geno_data) # read in genotype data
     geno = geno.to_pandas() # convert dataframe to pandas dataframe
     geno = geno.sort_values(by=geno.columns[0], axis=0) # sort values by sample ID
@@ -197,9 +215,16 @@ def test_geno():
     
     pheno = pd.read_csv(pheno_data, index_col=0) # read in phenotype data
     label = pheno.FT10_mean
-
+    
+    
     # Split geno and pheno into training and testing sets
-    X_train, X_test, y_train, y_test = train_test_split(geno_sub, label, test_size=64)
+    X_train = geno_sub.loc[~geno_sub.index.isin(test_mask[0])]
+    X_test = geno_sub.loc[geno_sub.index.intersection(test_mask[0])]
+    #y_train = pheno.loc[~pheno.index.isin(test_mask[0])]
+    #y_test = pheno.loc[pheno.index.intersection(test_mask[0])]
+    y_train = np.random.randint(0,6,306)
+    y_test = np.random.randint(0,6,77)
+    y = np.random.randint(0,6,383)
 
     # Create masks
     train_mask = tensor([i in np.array(X_train.index) for i in np.array(geno.index)])
@@ -207,11 +232,13 @@ def test_geno():
 
     # Convert to PyTorch tensors
     geno_sub = torch.tensor(geno_sub.values.astype(np.float32))
+    geno_sub[geno_sub==-1] = 0 # convert -1 to 0, just in case
     label = torch.tensor(label.values.astype(np.float32))
     X_train = torch.tensor(X_train.values.astype(np.float32))
     X_test = torch.tensor(X_test.values.astype(np.float32))
-    y_train = torch.tensor(y_train.values.astype(np.float32))
-    y_test = torch.tensor(y_test.values.astype(np.float32))
+    y_train = torch.tensor(y_train)
+    y_test = torch.tensor(y_test)
+    y = torch.tensor(y)
 
     # Compute adjacency matrix
     adj_parameter = 2 # edge_per_node
@@ -219,11 +246,13 @@ def test_geno():
     adj_train, edge_index, adj_values = gen_adj_mat_tensor(X_train.t(), adj_parameter_adaptive, "cosine")
 
     # Create PyTorch geometric Data object
-    return Data(x=geno_sub, edge_index=edge_index, y=label, train_mask=train_mask, test_mask=test_mask)
+    return Data(x=geno_sub, edge_index=edge_index, y=y, train_mask=train_mask, test_mask=test_mask)
 
 if __name__ == "__main__":
+    import gc
+    gc.collect()
     torch.cuda.empty_cache()
-    device = torch.device('cuda' if torch.cuda.is_available() else 'cpu') # check device
+    device = torch.device('cuda:1' if torch.cuda.is_available() else 'cpu') # check device
     print(device)
     t = torch.cuda.get_device_properties(0).total_memory
     r = torch.cuda.memory_reserved(0)
@@ -231,19 +260,20 @@ if __name__ == "__main__":
     f = r-a  # free inside reserved
     print(t, r, a, f)
 
-    # planetoid data
+    # planetoid data for classification
     #dataset = Planetoid(root='/tmp/Cora', name='Cora') # load dataset (2708 nodes/input tensor vars, 1433 instances)
     #data = dataset[0].to(device)
     #Data(x=[2708, 1433], edge_index=[2, 10556], y=[2708], train_mask=[2708], val_mask=[2708], test_mask=[2708])
     #num_node_features = 1433; num_classes = 7
     
-    # genotype data
+    # genotype data for regression
     dataset = test_geno()
     data = dataset.cuda(device)
+    print("data", data)
 
     model = Net(dataset) # create GCN model
     model.cuda(device) # send to gpu
-
+    
     # Optimizer    
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
     # Train the model
