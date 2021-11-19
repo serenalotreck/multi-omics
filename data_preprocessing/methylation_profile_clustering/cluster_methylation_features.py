@@ -8,9 +8,62 @@ from os.path import abspath, basename
 from collections import defaultdict
 import itertools
 
+from tqdm import tqdm
 import datatable as dt
+import pandas as pd
 from sklearn.cluster import KMeans
 from sklearn.preprocessing import OneHotEncoder
+
+
+def make_feature_table(encoded, row_ids, new_feat_names, data_type):
+    """
+    Return the clustered data to the original feature table format, but with
+    clusters as features now instead of bins. Final features are of the form
+        {gene name}_{data type}_cluster_{cluster number}
+
+    parameters:
+        encoded, 2D arr: output of one-hot encoding of the clustered instances
+        row_ids, pandas Index: original row labels of the tidy-form data
+        new_feat_names, 1D arr: names of the one-hot-encoded clusters
+        data_type, str: identifier for this table's data type
+
+    returns:
+        feature_table, pandas df: Final feature table
+    """
+    # Make into pandas df with proper labels
+    df = pd.DataFrame(encoded, index=row_ids, columns=new_feat_names)
+
+    # Get rows corresponding to genes
+    print('Matching genes to row names...')
+    row_names = df.index.values.tolist()
+    gene_names = lambda x: x.split('_')[-1]
+    row_lists = defaultdict(list)
+    for gene_name, row_names in itertools.groupby(row_names, key=gene_names):
+        row_lists[gene_name] += list(row_names)
+
+    # Make df
+    print('Reorganizing data...')
+    for gene_name, row_names in tqdm(row_lists.items()):
+
+        # Make a mapper for the rows
+        accesion_names = lambda x: x.split('_')[0]
+        row_mapper = {name:accesion_names(name) for name in row_names}
+
+        # Check if this is the first one
+        try:
+            feature_table
+            # If it's not the first, one, subset, rename idxs and concat
+            add_to_feat = df.loc[row_names]
+            add_to_feat = add_to_feat.rename(index=row_mapper)
+            add_to_feat = add_to_feat.add_prefix(f'{gene_name}_{data_type}_')
+            feature_table = pd.concat([feature_table, add_to_feat], axis=1)
+        except UnboundLocalError:
+            # If it is the first, subset and make that into tidy_df, rename
+            feature_table = df.loc[row_names]
+            feature_table = feature_table.rename(index=row_mapper)
+            feature_table = feature_table.add_prefix(f'{gene_name}_{data_type}_')
+
+    return feature_table
 
 
 def make_tidy_data(df):
@@ -35,6 +88,7 @@ def make_tidy_data(df):
         tidy_df, pandas df: the tidy version of the data
     """
     # Get the lists of column names that correpsond to each gene
+    print('Matching columns names to their genes...')
     cols = df.columns.values.tolist()
     gene_names = lambda x: x.split('_')[0] # Lambda func for groupby
     col_lists = defaultdict(list)
@@ -42,7 +96,8 @@ def make_tidy_data(df):
         col_lists[gene_name] += list(col_names)
 
     # Make df
-    for gene_name, col_names in col_lists.items():
+    print('Reorganizing data...')
+    for gene_name, col_names in tqdm(col_lists.items()):
 
         # Make a mapper for the columns
         bin_names = lambda x: '_'.join(x.split('_')[-2:])
@@ -51,15 +106,22 @@ def make_tidy_data(df):
         # Check if this is the first one
         try:
             tidy_df
-        except NameError:
+            # If it's not the first, one, subset, rename idxs and concat
+            add_to_tidy = df[col_names]
+            add_to_tidy = add_to_tidy.rename(columns=column_mapper)
+            add_to_tidy = add_to_tidy.set_index(
+                    add_to_tidy.index.astype(str) + f'_{gene_name}')
+            tidy_df = pd.concat([tidy_df, add_to_tidy])
+        except UnboundLocalError:
+            # If it is the first, subset and make that into tidy_df, rename
             tidy_df = df[col_names]
-            tidy_df.rename(columns=column_mapper)
+            tidy_df = tidy_df.rename(columns=column_mapper)
+            tidy_df = tidy_df.set_index(tidy_df.index.astype(str) + f'_{gene_name}')
 
-       # Otherwise just concat them
-       ## TODO come back to this
+    return tidy_df
 
 
-def main(feature_table_path, num_clusters, out_loc):
+def main(feature_table_path, data_type, num_clusters, out_loc):
 
     # Read in data
     print('\nReading in feature table...\n')
@@ -67,7 +129,9 @@ def main(feature_table_path, num_clusters, out_loc):
     print(df.head())
 
     # Preprocess data
-    accessions = df.index
+    print('\nMaking tidy data...')
+    df = make_tidy_data(df)
+    row_ids = df.index
     X = df.to_numpy()
 
     # Cluster
@@ -77,13 +141,15 @@ def main(feature_table_path, num_clusters, out_loc):
     # One hot encode
     print('\nOne hot encoding...')
     encoder = OneHotEncoder()
-    encoded = encoder.fit_transform([clusters])
+    encoded = encoder.fit_transform([clusters]).toarray()
 
     # Make feature table
     print('\nMaking feature table...')
-    feats = encoder.get_feature_names_out(input_features=['cluster'])
-    print(f'Feature names: {feats[:5] if len(feats) > 5 else feats}')
-    feature_table = pd.DataFrame(encoded, columns=feats, index=accessions)
+    new_feat_names = encoder.get_feature_names_out(input_features=['cluster'])
+    print(f'Feature names: '
+        '{new_feat_names[:5] if len(new_feat_names) > 5 else new_feat_names}')
+    feature_table = make_feature_table(encoded, row_ids, new_feat_names,
+            data_type)
     print(f'Snapshot of feature table:\n{feature_table.head()}')
 
     # Write out
@@ -100,6 +166,9 @@ if __name__ == "__main__":
 
     parser.add_argument('feature_table', type=str,
             help='Path to feature table to cluster')
+    parser.add_argument('data_type', type=str,
+            help='Descriptor for the data type in the table, e.g. '
+            'CG_pres_abs_mean')
     parser.add_argument('num_clusters', type=int,
             help='Number of clusters to use for kmeans')
     parser.add_argument('out_loc', type=str,
@@ -110,4 +179,4 @@ if __name__ == "__main__":
     args.feature_table = abspath(args.feature_table)
     args.out_loc = abspath(args.out_loc)
 
-    main(args.feature_table, args.num_clusters, args.out_loc)
+    main(args.feature_table, args.data_type, args.num_clusters, args.out_loc)
