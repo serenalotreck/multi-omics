@@ -1,5 +1,9 @@
 """
-Calculate bin statistics for methylation data and save as a pickled object.
+Calculate bin statistics for methylation data and make feature tables.
+
+This script is for the overall methylation data only, as the original
+script is specific to having all 6 single datasets.
+TODO: Refactor this into the main script
 
 Author: Serena G. Lotreck
 """
@@ -11,7 +15,6 @@ from gene import Gene
 import datetime
 import pandas as pd
 import datatable as dt
-import pickle
 
 
 def make_new_cols(df):
@@ -43,14 +46,14 @@ def make_new_cols(df):
     return new_cols
 
 
-def bin_and_make_feature_matrices(genes, methylation_datasets, gbb, ppb):
+def bin_and_make_feature_matrices(genes, methylation_dataset, gbb, ppb):
     """
     Make feature matrices for all 6 datasets.
 
     parameters:
         genes, generator of Gene obj: genes to use to make feature matrices
-        methylation_datasets, dict: keys are methylation attribute names,
-            values are methylation df's
+        methylation_datasets, dict: keys are 'overall_pres_abs_mean' or
+            'overall_prop_median', values are corresponding df's
         gbb, int: number of bins for gene body
         ppb, int: number of bins for pre and post sequences
 
@@ -60,12 +63,8 @@ def bin_and_make_feature_matrices(genes, methylation_datasets, gbb, ppb):
     # Initialize variables for feature tables
     print('Initializing loop variables...')
     data = {
-        'CG_pres_abs_mean': None,
-        'CG_prop_median': None,
-        'CHG_pres_abs_mean': None,
-        'CHG_prop_median': None,
-        'CHH_pres_abs_mean': None,
-        'CHH_prop_median': None
+        'overall_pres_abs_mean': None,
+        'overall_prop_median': None,
     }
 
     # Loop over genes and add to tables
@@ -83,7 +82,7 @@ def bin_and_make_feature_matrices(genes, methylation_datasets, gbb, ppb):
         gene.reverse_datasets()
 
         # Make a dict for renaming columns
-        new_cols = make_new_cols(gene.CG_pres_abs_mean)
+        new_cols = make_new_cols(gene.overall_pres_abs_mean)
 
         # If it's the first one, make it the df
         if i == 0:
@@ -239,8 +238,7 @@ def get_genes(gff):
     return genes
 
 
-def main(gff, gbb, ppb, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop,
-         CHG_prop, CHH_prop, out_loc, file_prefix):
+def main(gff, gbb, ppb, overall_pres_abs, overall_prop, out_loc, file_prefix):
 
     begin_time = datetime.datetime.now()
 
@@ -251,12 +249,8 @@ def main(gff, gbb, ppb, CG_pres_abs, CHG_pres_abs, CHH_pres_abs, CG_prop,
     # Read in methylation datasets
     print('\nReading in methylation datasets...')
     methylation_datasets = {
-        'CG_pres_abs': CG_pres_abs,
-        'CHG_pres_abs': CHG_pres_abs,
-        'CHH_pres_abs': CHH_pres_abs,
-        'CG_prop': CG_prop,
-        'CHG_prop': CHG_prop,
-        'CHH_prop': CHH_prop
+        'overall_pres_abs': overall_pres_abs,
+        'overall_prop': overall_prop
     }
     methylation_datasets = read_methylation_datasets(methylation_datasets)
 
@@ -294,29 +288,13 @@ if __name__ == '__main__':
         default=5,
         help='Number of bins to use for pre and post seqs. Default is 5.')
     parser.add_argument(
-        '-CG_pres_abs',
+        '-overall_pres_abs',
         type=str,
-        help='Path to file with presence/absence data for CG methylation.')
+        help='Path to file with presence/absence data for all methylation.')
     parser.add_argument(
-        '-CHG_pres_abs',
+        '-overall_prop',
         type=str,
-        help='Path to file with presence/absence data for CHG methylation.')
-    parser.add_argument(
-        '-CHH_pres_abs',
-        type=str,
-        help='Path to file with presence/absence data for CHH methylation.')
-    parser.add_argument(
-        '-CG_prop',
-        type=str,
-        help='Path to file with proportion data for CG methylation.')
-    parser.add_argument(
-        '-CHG_prop',
-        type=str,
-        help='Path to file with proportion data for CHG methylation.')
-    parser.add_argument(
-        '-CHH_prop',
-        type=str,
-        help='Path to file with proportion data for CHH methylation.')
+        help='Path to file with proportion data for all methylation.')
     parser.add_argument('-out_loc',
                         type=str,
                         help='Path to directory to save the output.')
@@ -327,12 +305,8 @@ if __name__ == '__main__':
     args = parser.parse_args()
 
     args.gff = abspath(args.gff)
-    args.CG_pres_abs = abspath(args.CG_pres_abs)
-    args.CHG_pres_abs = abspath(args.CHG_pres_abs)
-    args.CHH_pres_abs = abspath(args.CHH_pres_abs)
-    args.CG_prop = abspath(args.CG_prop)
-    args.CHG_prop = abspath(args.CHG_prop)
-    args.CHH_prop = abspath(args.CHH_prop)
+    args.overall_pres_abs = abspath(args.overall_pres_abs)
+    args.overall_prop = abspath(args.overall_prop)
     args.out_loc = abspath(args.out_loc)
 
     main(**vars(args))
