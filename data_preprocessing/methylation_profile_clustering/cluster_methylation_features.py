@@ -4,7 +4,7 @@ Make a feature table based on clustering of methylation profiles.
 Author: Serena G. Lotreck
 """
 import argparse
-from os.path import abspath, basename
+from os.path import abspath, basename, splitext
 from collections import defaultdict
 import itertools
 
@@ -126,6 +126,7 @@ def main(feature_table_path, data_type, num_clusters, out_loc):
     # Read in data
     print('\nReading in feature table...\n')
     df = dt.fread(feature_table_path).to_pandas().set_index('C0')
+    df.index.name = None
     print(df.head())
 
     # Preprocess data
@@ -141,7 +142,7 @@ def main(feature_table_path, data_type, num_clusters, out_loc):
     # One hot encode
     print('\nOne hot encoding...')
     encoder = OneHotEncoder()
-    encoded = encoder.fit_transform([clusters]).toarray()
+    encoded = encoder.fit_transform(clusters.reshape((len(row_ids), 1))).toarray()
 
     # Make feature table
     print('\nMaking feature table...')
@@ -154,7 +155,8 @@ def main(feature_table_path, data_type, num_clusters, out_loc):
 
     # Write out
     print('\nWriting out file...')
-    file_name = basename(feature_table_path)
+    file_name = splitext(basename(feature_table_path))[0]
+    print(f'{out_loc}/{file_name}_{num_clusters}_clusters.csv')
     feature_table.to_csv(f'{out_loc}/{file_name}_{num_clusters}_clusters.csv')
 
     print('\nDone!')

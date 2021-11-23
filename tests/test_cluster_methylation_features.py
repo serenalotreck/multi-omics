@@ -11,6 +11,7 @@ import sys
 sys.path.append('../data_preprocessing/methylation_profile_clustering')
 
 from cluster_methylation_features import make_tidy_data, make_feature_table
+import cluster_methylation_features as cmf
 import pandas as pd
 from pandas.testing import assert_frame_equal
 
@@ -72,7 +73,7 @@ class TestMakeFeatureTable(unittest.TestCase):
         assert_frame_equal(answer, self.right_answer)
 
 
-def TestMain(unittest.TestCase):
+class TestMain(unittest.TestCase):
 
     def setUp(self):
 
@@ -90,7 +91,27 @@ def TestMain(unittest.TestCase):
         self.data_type = 'my_data_type'
         self.num_clusters = 2
 
-        ## TODO get right answer & write test
+        self.output_path = f'{self.tmpdir}/df_2_clusters.csv'
+
+        self.right_answer = pd.DataFrame({'g1_my_data_type_cluster_0':[1, 0],
+                                          'g1_my_data_type_cluster_1':[0, 1],
+                                          'g2_my_data_type_cluster_0':[1, 1],
+                                          'g2_my_data_type_cluster_1':[0, 0]},
+                                        index=[101, 102])
+
+
+    def tearDown(self):
+
+        shutil.rmtree(self.tmpdir)
+
+
+    def test_main(self):
+
+        cmf.main(self.df_path, self.data_type, self.num_clusters, self.tmpdir)
+
+        answer = pd.read_csv(self.output_path, index_col=0)
+
+        assert_frame_equal(answer, self.right_answer, check_dtype=False)
 
 
 if __name__ == "__main__":
