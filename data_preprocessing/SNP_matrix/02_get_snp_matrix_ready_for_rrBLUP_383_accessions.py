@@ -3,8 +3,8 @@ import pandas as pd
 import sys,os
 '''
 f = h5py.File('1001_SNP_MATRIX/imputed_snps_binary.hdf5','r')
-with open('../Models_for_Grimm_pheno/Common_accessions_between_SNP_Methy_Exp_Grimm_pheno.txt') as f:
-	accession = f.read().splitlines()
+with open('../Models_for_Grimm_pheno/Common_accessions_between_SNP_Methy_Exp_Grimm_pheno.txt') as F:
+	accession = F.read().splitlines()
 	
 accs = f['accessions'][:]
 accs_new = []
