@@ -1,7 +1,7 @@
 import h5py, numpy
 import pandas as pd
 import sys,os
-'''
+
 f = h5py.File('1001_SNP_MATRIX/imputed_snps_binary.hdf5','r')
 with open('../Models_for_Grimm_pheno/Common_accessions_between_SNP_Methy_Exp_Grimm_pheno.txt') as F:
 	accession = F.read().splitlines()
@@ -16,6 +16,10 @@ ix_of_acc = []
 for a in accession:
 	ix_of_acc.append(numpy.where(accs_new==a)[0][0])
 	
+# Get all SNP positions for all chromosomes (len=10709949)
+positions = f['positions'][:]
+# Array of tupels with start/stop indices for each chromosome
+chr_regions = f['positions'].attrs['chr_regions']
 snp = f['snps'][:]
 res = snp[:,ix_of_acc]
 df = pd.DataFrame(res)
@@ -63,4 +67,4 @@ for i in range(0,remain.shape[0]):
 		df_convert.loc[index[i],df_convert.loc[index[i],:]==0] = -1
 df_convert = df_convert.T
 df_convert.to_csv('SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv',index=True, header=True,sep=",")
-
+'''
