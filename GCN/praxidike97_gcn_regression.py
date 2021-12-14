@@ -1,14 +1,30 @@
-# GCN for Classification from praxidike97 on GitHub adapted for regression
-# Source: https://github.com/praxidike97/GraphNeuralNet/blob/master/main.py
-# To run on command line if error: CUDA_LAUNCH_BLOCKING=1 python multi-omics/GCN/praxidike97_gcn.py 
+""" 
+GCN for Classification from praxidike97 on GitHub adapted for regression with genotype data.
+
+GCN source: https://github.com/praxidike97/GraphNeuralNet/blob/master/main.py
+layer source: https://github.com/dizhu-gis/SRGCNN/blob/main/SRGCNN_demo.ipynb
+Adjacency matrix source: https://github.com/txWang/MOGONET
+
+To run on command line if CUDA error (device-side assert triggered): 
+    CUDA_LAUNCH_BLOCKING=1 python praxidike97_gcn_regression.py 
+
+Data used:
+    Planetoid: 
+        Data(x=[2708, 1433], edge_index=[2, 10556], y=[2708], train_mask=[2708], val_mask=[2708], test_mask=[2708])
+        num_node_features = 1433; num_classes = 7
+    
+    Genotype: Data(x=[383, 1000], edge_index=[2, 5744], y=[383], train_mask=[383], test_mask=[383])
+        1000 features, 383 instances
+"""
+
 import torch
+from torch import nn
 from torch import tensor
 import torch.nn.functional as F
 from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import add_self_loops, degree
 from torch_geometric.data import Data
-from torch_geometric.nn import GCNConv
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
@@ -16,11 +32,11 @@ import time
 import pandas as pd
 import datatable as dt
 
-# Graph convolutional layer
+# Graph Convolutional layer
 class GCNConv(MessagePassing):
     def __init__(self, in_channels, out_channels):
         super(GCNConv, self).__init__(aggr='add')  # "Add" aggregation
-        self.lin = torch.nn.Linear(in_channels, out_channels) # linear transformation
+        self.lin = torch.nn.Linear(in_channels, out_channels)
 
     def forward(self, x, edge_index):
         # Step 1: Add self-loops
@@ -31,10 +47,7 @@ class GCNConv(MessagePassing):
 
         # Step 3: Calculate the normalization
         row, col = edge_index
-        #print("row", row, row.size())
-        #print("col", col, col.size())
-        #print("x", x, x.size())
-        deg = degree(row, x.size(0), dtype=x.dtype) # this step here is not working with genotype data
+        deg = degree(row, x.size(0), dtype=x.dtype)
         deg_inv_sqrt = deg.pow(-0.5)
         norm = deg_inv_sqrt[row] * deg_inv_sqrt[col]
 
@@ -46,32 +59,59 @@ class GCNConv(MessagePassing):
         # Normalize node features.
         return norm.view(-1, 1) * x_j
 
+# Graph convolutional layer for regression
+class GCNConv_reg(nn.Module):
+    """Basic graph convolution operation that incorporate both spatial lagged X 
+    and spatial lagged Y (to be used in the basic SRGCNNs model)"""
+    def __init__(self, f_in, f_out, use_bias=True, activation=F.relu):#hidden layer with relu activation
+        super().__init__()
+        self.f_in = f_in
+        self.f_out = f_out
+        self.use_bias = use_bias
+        self.activation = activation
+        self.weight = nn.Parameter(torch.FloatTensor(f_in, f_out),requires_grad=True)###requires_grad:whether allow weights to be updated
+        self.bias = nn.Parameter(torch.FloatTensor(f_out)) if use_bias else None
+        self.initialize_weights()
+    
+    def initialize_weights(self):
+        nn.init.constant_(self.weight,1)
+        if self.use_bias: nn.init.constant_(self.bias,0)
+        
+    def forward(self, input, adj):
+        support = torch.mm(input, self.weight)
+        output = torch.mm(adj, support) #adj here has to be renormalized     
+        
+        if self.use_bias: output.add_(self.bias)
+        if self.activation is not None: output=self.activation(output) 
+        
+        return output
+
 # GCN Model
 class Net(torch.nn.Module):
     def __init__(self, dataset):
         super(Net, self).__init__()
         # for classification
-        #self.conv1 = GCNConv(dataset.num_node_features, 16) 
-        #self.conv2 = GCNConv(16, dataset.num_classes)
+        self.conv1 = GCNConv(dataset.num_node_features, 16) 
+        self.conv2 = GCNConv(16, dataset.num_classes)
         # for regression
-        self.conv1 = GCNConv(1000, 400) 
-        self.conv2 = GCNConv(400, 7)
+        #self.conv1 = GCNConv(1000, 400) 
+        #self.conv2 = GCNConv(400, 383)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
-        #print("x", x, x.size())
-        #print("edge_index", edge_index, edge_index.size())
+        #x = x.to(device)
+        #edge_index = edge_index.type(torch.cuda.FloatTensor).cuda(device)
+        #print('x', x, x.size())
+        #print('edge_index', edge_index, edge_index.size())
         x = self.conv1(x, edge_index)
-        #print("layer1", x, x.size())
-        x = F.relu(x)
-        #print("relu", x, x.size())
+        x = F.relu(x) # this is messing up the structure of the tensor for genotype data!! :( but it's fine for planetoid. Why is that?
         x = F.dropout(x, training=self.training)
-        #print("regularization", x, x.size())
+        #print('dropout x', x, x.size())
         x = self.conv2(x, edge_index)
-        #print("layer2", x, x.size())
+        #print('x 2', x, x.size())
         
         #return x # for regression
-        return F.log_softmax(x, dim=1) # paired with nll_loss function for classification
+        return F.log_softmax(x, dim=1) # for classification
         
 
 # Graph of dataset
@@ -98,7 +138,11 @@ def test(data, train=True):
 
     correct = 0
     pred = model(data).max(dim=1)[1]
-
+    #print("TEST-------------")
+    #print('pred', pred, pred.size())
+    #print('data.train_mask', data.train_mask, data.train_mask.size())
+    #print('data.y', data.y, data.y.size())
+    #sprint('data.y[data.train_mask]', data.y[data.train_mask])
     if train:
         correct += pred[data.train_mask].eq(data.y[data.train_mask]).sum().item()
         return correct / (len(data.y[data.train_mask]))
@@ -113,14 +157,25 @@ def train(data, plot=False):
     for epoch in range(100):
         model.train()
         optimizer.zero_grad()
+        #print('data', data, data.size())
         out = model(data)
-        #print("out", out, out.size())
+        # IndexError: The shape of the mask [383] at index 0 does not match the shape of the indexed tensor [2, 7] at index 0
+        #print('train mask', data.train_mask, data.train_mask.size())
+        #print('out', out, out.size())
+        #print('out[data.train_mask]', out[data.train_mask], out[data.train_mask].size())
+        #print('data.y', data.y, data.y.size())
+        #print('data.y[data.train_mask]', data.y[data.train_mask], data.y[data.train_mask].size())
+        
+        # for regression
         #loss = torch.nn.MSELoss()
-        #output = loss(out[data.train_mask], data.y[data.train_mask]) # for regression
+        #output = loss(out[data.train_mask], data.y[data.train_mask]) 
         #output.backward()
-        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask]) # for classification
+
+        # for classification
+        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
         loss.backward()
         optimizer.step()
+
 
         train_acc = test(data)
         test_acc = test(data, train=False)
@@ -162,7 +217,7 @@ def cal_adj_mat_parameter(edge_per_node, data, metric="cosine"):
     assert metric == "cosine", "Only cosine distance implemented"
     dist = cosine_distance_torch(data, data)
     parameter = torch.sort(dist.reshape(-1,)).values[edge_per_node*data.shape[0]]
-    return np.asscalar(parameter.data.cpu().numpy())
+    return parameter.data.cpu().numpy().item()
 
 def graph_from_dist_tensor(dist, parameter, self_dist=True):
     if self_dist:
@@ -220,11 +275,11 @@ def test_geno():
     # Split geno and pheno into training and testing sets
     X_train = geno_sub.loc[~geno_sub.index.isin(test_mask[0])]
     X_test = geno_sub.loc[geno_sub.index.intersection(test_mask[0])]
-    #y_train = pheno.loc[~pheno.index.isin(test_mask[0])]
-    #y_test = pheno.loc[pheno.index.intersection(test_mask[0])]
-    y_train = np.random.randint(0,6,306)
-    y_test = np.random.randint(0,6,77)
-    y = np.random.randint(0,6,383)
+    y_train = pheno.loc[~pheno.index.isin(test_mask[0])]
+    y_test = pheno.loc[pheno.index.intersection(test_mask[0])]
+    #y_train = np.random.randint(0,6,306) # attempting classification
+    #y_test = np.random.randint(0,6,77)
+    #y = np.random.randint(0,6,383)
 
     # Create masks
     train_mask = tensor([i in np.array(X_train.index) for i in np.array(geno.index)])
@@ -238,7 +293,7 @@ def test_geno():
     X_test = torch.tensor(X_test.values.astype(np.float32))
     y_train = torch.tensor(y_train)
     y_test = torch.tensor(y_test)
-    y = torch.tensor(y)
+    #y = torch.tensor(y)
 
     # Compute adjacency matrix
     adj_parameter = 2 # edge_per_node
@@ -246,7 +301,7 @@ def test_geno():
     adj_train, edge_index, adj_values = gen_adj_mat_tensor(X_train.t(), adj_parameter_adaptive, "cosine")
 
     # Create PyTorch geometric Data object
-    return Data(x=geno_sub, edge_index=edge_index, y=y, train_mask=train_mask, test_mask=test_mask)
+    return Data(x=geno_sub, edge_index=edge_index, y=label, train_mask=train_mask, test_mask=test_mask)
 
 if __name__ == "__main__":
     import gc
@@ -261,15 +316,13 @@ if __name__ == "__main__":
     print(t, r, a, f)
 
     # planetoid data for classification
-    #dataset = Planetoid(root='/tmp/Cora', name='Cora') # load dataset (2708 nodes/input tensor vars, 1433 instances)
-    #data = dataset[0].to(device)
-    #Data(x=[2708, 1433], edge_index=[2, 10556], y=[2708], train_mask=[2708], val_mask=[2708], test_mask=[2708])
-    #num_node_features = 1433; num_classes = 7
+    dataset = Planetoid(root='/tmp/Cora', name='Cora') # load dataset (2708 nodes/input tensor vars, 1433 instances)
+    data = dataset[0].to(device)
     
     # genotype data for regression
-    dataset = test_geno()
-    data = dataset.cuda(device)
-    print("data", data)
+    #dataset = test_geno()
+    #data = dataset.cuda(device)
+    #print("data", data)
 
     model = Net(dataset) # create GCN model
     model.cuda(device) # send to gpu
