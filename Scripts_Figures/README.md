@@ -1,5 +1,5 @@
 # Descriptions and Usage of Scripts
-__feature_selectio_plots_.ipynb__<br />
+__feature_selectio_plots.ipynb__<br />
 Jupyter notebook containing code for generating scatterplots of feature importance scores (RF) or feature coefficients (rrBLUP) for genomic, transcriptomic, and methylomic features.
 ***
 __job_submission.slurm__<br />
