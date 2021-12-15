@@ -5,7 +5,7 @@ Jupyter notebook containing code for generating scatterplots of feature importan
 __job_submission.slurm__<br />
 SLURM script to submit code as jobs. Modify it depending on the code you want to run, it's and the input data location, and resources you need.
 ***
-__match_SNPs_to_TAIR10_genes.py__<br />
+__map_SNPs_to_TAIR10_genes.py__<br />
 To map the bi-allelic SNPs to the *Arabidopsis thaliana* TAIR10 reference genome.<br />
 Input:
 - genotype matrix: SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv 
