@@ -15,6 +15,6 @@ module load GCC/6.4.0-2.28  OpenMPI/2.1.2  Python/3.6.4
 cd /mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/Data
 
 ### Code to run ###
-python /mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/multi-omics/Scripts_Figures/match_SNPs_to_TAIR10_genes.py -geno SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv -gff Athaliana_167_TAIR10.gene.gff3 -save TAIR10_genes_of_SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv
+python /mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/multi-omics/Scripts_Figures/map_SNPs_to_TAIR10_genes.py -geno SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv -gff Athaliana_167_TAIR10.gene.gff3 -save TAIR10_genes_of_SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv
 
 scontrol show job $SLURM_JOB_ID # print job information
