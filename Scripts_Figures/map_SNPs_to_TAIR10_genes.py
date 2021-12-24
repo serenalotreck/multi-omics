@@ -9,7 +9,6 @@ Input:
 """
 
 import sys,os,argparse
-from typing_extensions import ParamSpecKwargs
 import datatable
 import pandas as pd
 from alive_progress import alive_bar
@@ -85,7 +84,7 @@ def main():
                         if (pos >= start and pos <= stop): # snp falls within genic region
                             map[s] = [gene] # map gene to snp
                         else:
-                            ParamSpecKwargs
+                            pass
                     elif (chr == "Chr2" and CHR == "Chr2"):
                         if (pos >= start and pos <=stop):
                             map[s] = [gene]
@@ -109,21 +108,9 @@ def main():
             bar()
 
     print("Saving file...")
-    #map = pd.DataFrame(map, index=[0])
-    #map = map.transpose()
-    #map.to_csv(args.save)
-    out = open(args.save, "w")
-    for s in snps:
-        if s not in map.keys(): # if snp s is not in map keys, then it's intergenic
-            chr, pos = s.split("_")[0], s.split("_")[1]
-            out.write("%s,%s,%s,intergenic\n" % (s, chr, pos))
-        else:
-            for snp, gene in map.items(): # snp s is genic
-                if s == snp:
-                    chr, pos = s.split("_")[0], s.split("_")[1]
-                    out.write("%s,%s,%s,%s\n" % (s, chr, pos, gene[0])) # snp ID, chromosome, position, gene
-    out.close()
-
+    map = pd.DataFrame(map, index=[0])
+    map = map.transpose()
+    map.to_csv(args.save)
 
 if __name__ == '__main__':
     main()
