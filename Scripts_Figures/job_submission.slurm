@@ -1,5 +1,5 @@
 #!/bin/bash --login 
-#SBATCH --time=5:00:00                          # Allocated run time
+#SBATCH --time=5:00:00                         # Allocated run time
 #SBATCH --nodes=1                               # Number of nodes
 #SBATCH --ntasks=1                              # Number of tasks
 #SBATCH --cpus-per-task=2                       # Number of CPUs per task
