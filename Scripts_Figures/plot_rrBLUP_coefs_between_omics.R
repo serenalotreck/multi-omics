@@ -2,11 +2,7 @@
 # Density plots of Genomic Prediction Analysis of
 # flowering time to compare top features (genomic, 
 # transcriptomic, methylomic [gene body]) by rank
-<<<<<<< HEAD
 # of rrBLUP feature coefficients.
-=======
-# of rrBLUP feature coefficients
->>>>>>> 0313d89fed49254bec897eb9bb85b58189fb1494
 #
 # Written by: Kenia Segura Abá
 ####################################################
