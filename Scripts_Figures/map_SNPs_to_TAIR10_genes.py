@@ -1,7 +1,7 @@
 #!/bin/python
 """
 Match SNPs (binary, MAF > 0.05) to Arabidopsis thaliana TAIR10 reference genes
-Kenia Segura Abá
+Written by: Kenia Segura Abá
 
 Input:
     genotype file

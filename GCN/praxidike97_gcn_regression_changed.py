@@ -6,7 +6,7 @@ layer source: https://github.com/dizhu-gis/SRGCNN/blob/main/SRGCNN_demo.ipynb
 Adjacency matrix source: https://github.com/txWang/MOGONET
 
 To run on command line if CUDA error (device-side assert triggered): 
-    CUDA_LAUNCH_BLOCKING=1 python praxidike97_gcn_regression.py 
+    CUDA_LAUNCH_BLOCKING=1 python praxidike97_gcn_regression_changed.py 
 
 Data used:
     Planetoid: 
@@ -347,9 +347,10 @@ def gen_adj_mat_tensor(data, parameter, metric="cosine"):
 
 # create PyTorch Data object using genotype data
 def test_geno():
-    geno_data="SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv"
-    pheno_data="Phenotype_value_383_common_accessions_2017_Grimm.csv"
-    test_mask="test_20perc.txt"
+    path = "/mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/Data"
+    geno_data="%s/SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv"%path
+    pheno_data="%s/Phenotype_value_383_common_accessions_2017_Grimm.csv"%path
+    test_mask="%s/test_20perc.txt"%path
     test_mask = pd.read_csv(test_mask, header=None)
     if not load_from_preprocess:
         geno = dt.fread(geno_data) # read in genotype data
@@ -396,8 +397,6 @@ def test_geno():
         y_test  = torch.load(open("y_test.pkl",'rb'))
         y_train = torch.load(open("y_train.pkl",'rb'))
 
-    
-
     # Compute adjacency matrix
     adj_parameter = 2 # edge_per_node
     adj_parameter_adaptive = cal_adj_mat_parameter(adj_parameter, X_train, "cosine")
@@ -412,11 +411,6 @@ if __name__ == "__main__":
     torch.cuda.empty_cache()
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu') # check device
     print(device)
-    t = torch.cuda.get_device_properties(0).total_memory
-    r = torch.cuda.memory_reserved(0)
-    a = torch.cuda.memory_allocated(0)
-    f = r-a  # free inside reserved
-    print(t, r, a, f)
 
     # planetoid data for classification
     # dataset = Planetoid(root='/tmp/Cora', name='Cora') # load dataset (2708 nodes/input tensor vars, 1433 instances)
