@@ -26,3 +26,6 @@ sbatch job_submission.slurm
 squeue -u userid # check job status
 ```
 ***
+__plot_RF_imp_between_omics.R & plot_rrBLUP_coefs_between_omics.R__<br />
+R script for making density scatterplots comparing features from genome, transcriptome, and gene body methylome for flowering time (383 accessions) prediction models (Random Forest [RF] and rrBLUP). The actual feature coefficients or importance scores are plotted and the 95% and 99% quantile lines are marked.
+***
