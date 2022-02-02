@@ -2,7 +2,7 @@
 # Density plots of Genomic Prediction Analysis of
 # flowering time to compare top features (genomic, 
 # transcriptomic, methylomic [gene body]) by rank
-# of rrBLUP feature rank_normficients.
+# of rrBLUP feature coefficients.
 #
 # Written by: Kenia Segura Abá
 ####################################################
@@ -46,43 +46,43 @@ g <- ggplot(T, aes(coef)) + geom_density() + theme_bw() + xlab("Expression Featu
             geom_vline(xintercept=T.quant[1], color="red", linetype="dashed") + 
             geom_vline(xintercept=T.quant[2], color="red", linetype="dashed") +
             geom_vline(xintercept=T.quant[3], color="blue", linetype="dashed") +
-            geom_vline(xintercept=T.quant[3], color="blue", linetype="dashed")
+            geom_vline(xintercept=T.quant[4], color="blue", linetype="dashed")
 G.quant <- quantile(G$coef, c(0.95,0.05,0.99,0.01))
 g2 <- ggplot(G, aes(coef)) + geom_density() + theme_bw() + xlab("SNP Feature Coefficients") +
             geom_vline(xintercept=G.quant[1], color="red", linetype="dashed") + 
             geom_vline(xintercept=G.quant[2], color="red", linetype="dashed") +
             geom_vline(xintercept=G.quant[3], color="blue", linetype="dashed") +
-            geom_vline(xintercept=G.quant[3], color="blue", linetype="dashed")
+            geom_vline(xintercept=G.quant[4], color="blue", linetype="dashed")
 M.quant <- quantile(M$coef, c(0.95,0.05,0.99,0.01))
 p <- ggplot(M, aes(coef)) + geom_density() + theme_bw() + xlab("GB Methylation Feature Coefficients") +
             geom_vline(xintercept=M.quant[1], color="red", linetype="dashed") + 
             geom_vline(xintercept=M.quant[2], color="red", linetype="dashed") +
             geom_vline(xintercept=M.quant[3], color="blue", linetype="dashed") +
-            geom_vline(xintercept=M.quant[3], color="blue", linetype="dashed")
+            geom_vline(xintercept=M.quant[4], color="blue", linetype="dashed")
 mCG.quant <- quantile(mCG$coef, c(0.95,0.05,0.99,0.01))
 l <- ggplot(mCG, aes(coef)) + geom_density() + theme_bw() + xlab("GB Methylation CG Feature Coefficients") +
             geom_vline(xintercept=mCG.quant[1], color="red", linetype="dashed") + 
             geom_vline(xintercept=mCG.quant[2], color="red", linetype="dashed") +
             geom_vline(xintercept=mCG.quant[3], color="blue", linetype="dashed") +
-            geom_vline(xintercept=mCG.quant[3], color="blue", linetype="dashed")
+            geom_vline(xintercept=mCG.quant[4], color="blue", linetype="dashed")
 mCHH.quant <- quantile(mCHH$coef, c(0.95,0.05,0.99,0.01))
 o <- ggplot(mCHH, aes(coef)) + geom_density() + theme_bw() + xlab("GB Methylation CHH Feature Coefficients") +
             geom_vline(xintercept=mCHH.quant[1], color="red", linetype="dashed") + 
             geom_vline(xintercept=mCHH.quant[2], color="red", linetype="dashed") +
             geom_vline(xintercept=mCHH.quant[3], color="blue", linetype="dashed") +
-            geom_vline(xintercept=mCHH.quant[3], color="blue", linetype="dashed")
+            geom_vline(xintercept=mCHH.quant[4], color="blue", linetype="dashed")
 mCHG.quant <- quantile(mCHG$coef, c(0.95,0.05,0.99,0.01))
 t <- ggplot(mCHG, aes(coef)) + geom_density() + theme_bw() + xlab("GB Methylation CHG Feature Coefficients") +
             geom_vline(xintercept=mCHG.quant[1], color="red", linetype="dashed") + 
             geom_vline(xintercept=mCHG.quant[2], color="red", linetype="dashed") +
             geom_vline(xintercept=mCHG.quant[3], color="blue", linetype="dashed") +
-            geom_vline(xintercept=mCHG.quant[3], color="blue", linetype="dashed")
+            geom_vline(xintercept=mCHG.quant[4], color="blue", linetype="dashed")
 G2.quant <- quantile(G2$coef, c(0.95,0.05,0.99,0.01))
 s <- ggplot(G2, aes(coef)) + geom_density() + theme_bw() + xlab("SNP Feature Coefficients") +
             geom_vline(xintercept=G2.quant[1], color="red", linetype="dashed") + 
             geom_vline(xintercept=G2.quant[2], color="red", linetype="dashed") +
             geom_vline(xintercept=G2.quant[3], color="blue", linetype="dashed") +
-            geom_vline(xintercept=G2.quant[3], color="blue", linetype="dashed")
+            geom_vline(xintercept=G2.quant[4], color="blue", linetype="dashed")
 setwd("/mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/Figures/Based_On_Coef/rrBLUP")
 ggsave("Density_dist_Coef_Expression_FT10_mean.pdf", plot=g, width=5, height=5, device="pdf", useDingbats=FALSE)
 ggsave("Density_dist_Coef_SNP_FT10_mean.pdf", plot=g2, width=5, height=5, device="pdf", useDingbats=FALSE)
