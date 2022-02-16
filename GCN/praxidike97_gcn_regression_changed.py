@@ -13,10 +13,14 @@ Data used:
         Data(x=[2708, 1433], edge_index=[2, 10556], y=[2708], train_mask=[2708], val_mask=[2708], test_mask=[2708])
         num_node_features = 1433; num_classes = 7
     
-    Genotype: Data(x=[383, 1000], edge_index=[2, 5744], y=[383], train_mask=[383], test_mask=[383])
+    Multi-omics genotype: Data(x=[383, 1000], edge_index=[2, 5744], y=[383], train_mask=[383], test_mask=[383])
         1000 features, 383 instances
+    
+    Yeast genotype: Data(x=[750, 64456], edge_index=[2, 1251], y=[750], train_mask=[750], test_mask=[750])
+        64456 features, 750 instances
 """
 
+from pyexpat.errors import XML_ERROR_INVALID_TOKEN
 import torch
 from torch import nn
 from torch import tensor
@@ -93,20 +97,16 @@ class NetReg(torch.nn.Module):
     def __init__(self, num_node_features):
         super().__init__()
         # for classification
-        self.conv1 = GCNConv(num_node_features, 16) 
-        self.conv2 = GCNConv(16, 1)
+        self.conv1 = GCNConv(data.x.shape[1], 200) # data.x.shape[1] = 750 samples; dataset.num_node_features, 16
+        self.conv2 = GCNConv(200, 1) # 16, 1
         # for regression
         #self.conv1 = GCNConv(1000, 400) 
         #self.conv2 = GCNConv(400, 383)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
-        #x = x.to(device)
-        #edge_index = edge_index.type(torch.cuda.FloatTensor).cuda(device)
-        #print('x', x, x.size())
-        #print('edge_index', edge_index, edge_index.size())
         x = self.conv1(x, edge_index)
-        x = F.relu(x) # this is messing up the structure of the tensor for genotype data!! :( but it's fine for planetoid. Why is that?
+        x = F.relu(x)
         x = F.dropout(x, training=self.training)
         #print('dropout x', x, x.size())
         x = self.conv2(x, edge_index)
@@ -116,34 +116,21 @@ class NetReg(torch.nn.Module):
         return x# for classification
         
 
-class Net(torch.nn.Module):
+class Net(torch.nn.Module): # Classification
     def __init__(self, dataset):
         super(Net, self).__init__()
         # for classification
         self.conv1 = GCNConv(dataset.num_node_features, 16) 
         self.conv2 = GCNConv(16, dataset.num_classes)
-        # for regression
-        #self.conv1 = GCNConv(1000, 400) 
-        #self.conv2 = GCNConv(400, 383)
+
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
-        #x = x.to(device)
-        #edge_index = edge_index.type(torch.cuda.FloatTensor).cuda(device)
-        #print('x', x, x.size())
-        #print('edge_index', edge_index, edge_index.size())
         x = self.conv1(x, edge_index)
         x = F.relu(x) # this is messing up the structure of the tensor for genotype data!! :( but it's fine for planetoid. Why is that?
         x = F.dropout(x, training=self.training)
-        #print('dropout x', x, x.size())
         x = self.conv2(x, edge_index)
-        #print('x 2', x, x.size())
-        
-        #return x # for regression
         return F.log_softmax(x, dim=1) # for classification
-
-
-
 
 # Graph of dataset
 def plot_dataset(dataset):
@@ -164,125 +151,107 @@ def plot_dataset(dataset):
 
 
 # Evaluate the model on the test set
-def test(data, train=True):
+def test(data, train=True, val=False):
     model.eval()
-
     correct = 0
-    pred = model(data).max(dim=1)[1]
-    #print("TEST-------------")
-    #print('pred', pred, pred.size())
-    #print('data.train_mask', data.train_mask, data.train_mask.size())
-    #print('data.y', data.y, data.y.size())
-    #sprint('data.y[data.train_mask]', data.y[data.train_mask])
+    pred = model(data)#.max(dim=1)[1]
     if train:
         correct += pred[data.train_mask].eq(data.y[data.train_mask]).sum().item()
         return correct / (len(data.y[data.train_mask]))
+    if val:
+        correct += pred[data.val_mask].eq(data.y[data.val_mask]).sum().item()
+        return correct / (len(data.y[data.val_mask]))
     else:
         correct += pred[data.test_mask].eq(data.y[data.test_mask]).sum().item()
         return correct / (len(data.y[data.test_mask]))
 
-# Evaluate the model on the test set
+# Evaluate the model on the validation or test set
 def test_reg(data, train=True):
     model.eval()
-
     correct = 0
     pred = model(data)
     return (pred - data.y).pow(2).sum().sqrt().item()
 
 # train the model
 def train_reg(data, plot=False):    
-    train_accuracies, test_accuracies = list(), list()
+    train_accuracies, val_accuracies = list(), list()
     start = time.time()
     for epoch in range(100):
         model.train()
         optimizer.zero_grad()
-        #print('data', data, data.size())
         out = model(data)
-        # IndexError: The shape of the mask [383] at index 0 does not match the shape of the indexed tensor [2, 7] at index 0
-        #print('train mask', data.train_mask, data.train_mask.size())
-        #print('out', out, out.size())
-        #print('out[data.train_mask]', out[data.train_mask], out[data.train_mask].size())
-        #print('data.y', data.y, data.y.size())
-        #print('data.y[data.train_mask]', data.y[data.train_mask], data.y[data.train_mask].size())
         
         # for regression
         #loss = torch.nn.MSELoss()
         #output = loss(out[data.train_mask], data.y[data.train_mask]) 
         #output.backward()
 
-        # for classification
-        loss = F.mse_loss(out[data.train_mask],data.y[data.train_mask])
+        # for regression
+        loss = F.mse_loss(out[data.val_mask],data.y[data.val_mask])
         loss.backward()
         optimizer.step()
 
-
         train_acc = test_reg(data)
-        test_acc = test_reg(data, train=False)
+        val_acc = test_reg(data, train=False)
 
         train_accuracies.append(train_acc)
-        test_accuracies.append(test_acc)
-        print('Epoch: {:03d}, Loss: {:.5f}, Train Acc: {:.5f}, Test Acc: {:.5f}'.
-              format(epoch, loss, train_acc, test_acc))
+        val_accuracies.append(val_acc)
+        print('Epoch: {:03d}, Loss: {:.5f}, Train Acc: {:.5f}, Val Acc: {:.5f}'.
+              format(epoch, loss, train_acc, val_acc))
     end = time.time()
     print("Elapsed time: ", end-start)
 
+    # Test accuracy
+    test_acc = test(data, train=False)
+    print("Test Acc: {:.5f}".format(test_acc))
+
     if plot: # plot AUC curve
         plt.plot(train_accuracies, label="Train mse loss")
-        plt.plot(test_accuracies, label="Validation mse loss")
+        plt.plot(val_accuracies, label="Validation mse loss")
+        plt.ylim([0,1000])
         plt.xlabel("# Epoch")
         plt.ylabel("mse")
         plt.title("new Dataset")
         plt.legend(loc='upper right')
-        plt.savefig("auc_praxidike_gcn.png")
-
-
-
+        plt.savefig("auc_praxidike_gcn_yeast_val.png")
 
 # train the model
 def train(data, plot=False):    
-    train_accuracies, test_accuracies = list(), list()
+    train_accuracies, val_accuracies = list(), list()
     start = time.time()
     for epoch in range(100):
         model.train()
         optimizer.zero_grad()
-        #print('data', data, data.size())
         out = model(data)
-        # IndexError: The shape of the mask [383] at index 0 does not match the shape of the indexed tensor [2, 7] at index 0
-        #print('train mask', data.train_mask, data.train_mask.size())
-        #print('out', out, out.size())
-        #print('out[data.train_mask]', out[data.train_mask], out[data.train_mask].size())
-        #print('data.y', data.y, data.y.size())
-        #print('data.y[data.train_mask]', data.y[data.train_mask], data.y[data.train_mask].size())
-        
-        # for regression
-        #loss = torch.nn.MSELoss()
-        #output = loss(out[data.train_mask], data.y[data.train_mask]) 
-        #output.backward()
 
         # for classification
-        loss = F.nll_loss(out[data.train_mask], data.y[data.train_mask])
+        loss = F.nll_loss(out[data.val_mask], data.y[data.val_mask])
         loss.backward()
         optimizer.step()
 
-
         train_acc = test(data)
-        test_acc = test(data, train=False)
+        val_acc = test(data, train=False, val=True)
 
         train_accuracies.append(train_acc)
-        test_accuracies.append(test_acc)
-        print('Epoch: {:03d}, Loss: {:.5f}, Train Acc: {:.5f}, Test Acc: {:.5f}'.
-              format(epoch, loss, train_acc, test_acc))
+        val_accuracies.append(val_acc)
+        print('Epoch: {:03d}, Loss: {:.5f}, Train Acc: {:.5f}, Val Acc: {:.5f}'.
+              format(epoch, loss, train_acc, val_acc))
+   
     end = time.time()
     print("Elapsed time: ", end-start)
 
+    # Test accuracy
+    test_acc = test(data, train=False)
+    print("Test Acc: {:.5f}".format(test_acc))
+
     if plot: # plot AUC curve
         plt.plot(train_accuracies, label="Train accuracy")
-        plt.plot(test_accuracies, label="Validation accuracy")
+        plt.plot(val_accuracies, label="Validation accuracy")
         plt.xlabel("# Epoch")
         plt.ylabel("Accuracy")
         plt.title("Planetoid Dataset")
         plt.legend(loc='upper right')
-        plt.savefig("auc_praxidike_gcn.png")
+        plt.savefig("auc_praxidike_gcn_val.png")
 
 '''
 MOGONET Method for Computing Adjacency Matrix
@@ -347,46 +316,58 @@ def gen_adj_mat_tensor(data, parameter, metric="cosine"):
 
 # create PyTorch Data object using genotype data
 def test_geno():
-    path = "/mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/Data"
-    geno_data="%s/SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv"%path
-    pheno_data="%s/Phenotype_value_383_common_accessions_2017_Grimm.csv"%path
-    test_mask="%s/test_20perc.txt"%path
+    # Datasets
+    #path = "/mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/Data" # multi-omics dataset
+    #geno_data="%s/SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv"%path
+    #pheno_data="%s/Phenotype_value_383_common_accessions_2017_Grimm.csv"%path
+    #test_mask="%s/test_20perc.txt"%path
+    path = "/mnt/home/seguraab/Shiu_Lab/Project/Data/Peter_2018"
+    geno_data = "%s/geno.csv"%path
+    pheno_data = "%s/pheno.csv"%path
+    test_mask="%s/Test.txt"%path
     test_mask = pd.read_csv(test_mask, header=None)
+    
     if not load_from_preprocess:
         geno = dt.fread(geno_data) # read in genotype data
         geno = geno.to_pandas() # convert dataframe to pandas dataframe  # 383, 1771291 
         # geno = pd.read_csv(geno_data)
         geno = geno.sort_values(by=geno.columns[0], axis=0) # sort values by sample ID
         geno = geno.set_index(geno.columns[0], drop=True) # set index to sample ID
-        geno_sub = geno # 383 samples rows
+        geno_sub = geno
         features = geno_sub.columns # columns as features
         
         pheno = pd.read_csv(pheno_data, index_col=0) # read in phenotype data
-        label = pheno.FT10_mean
+        #label = pheno.FT10_mean
+        label = pheno.YPACETATE
+        
         # Split geno and pheno into training and testing sets
         X_train = geno_sub.loc[~geno_sub.index.isin(test_mask[0])]
         X_test = geno_sub.loc[geno_sub.index.intersection(test_mask[0])]
         y_train = pheno.loc[~pheno.index.isin(test_mask[0])]
         y_test = pheno.loc[pheno.index.intersection(test_mask[0])]
-        #y_train = np.random.randint(0,6,306) # attempting classification
-        #y_test = np.random.randint(0,6,77)
-        #y = np.random.randint(0,6,383)
+
+        # Split training sets into training and validation sets
+        X_val = X_train.sample(frac=0.2, random_state=25)
+        X_train = X_train.loc[~X_train.index.isin(X_val.index)]
+        y_val = y_train.loc[y_train.index.isin(X_val.index)]
+        y_train = y_train.loc[~y_train.index.isin(y_val.index)]
+        
         # Create masks
         train_mask = tensor([i in np.array(X_train.index) for i in np.array(geno.index)])
+        val_mask = tensor([i in np.array(X_val.index) for i in np.array(geno.index)])
         test_mask = tensor([i in np.array(X_test.index) for i in np.array(geno.index)])
-
+        
         # Convert to PyTorch tensors
         geno_sub = torch.tensor(geno_sub.values.astype(np.float32))
-        geno_sub[geno_sub==-1] = 0 # convert -1 to 0, just in case
+        #geno_sub[geno_sub==-1] = 0 # convert -1 to 0, just in case
         label = torch.tensor(label.values.astype(np.float32))
         X_train = torch.tensor(X_train.values.astype(np.float32))
+        X_val = torch.tensor(X_val.values.astype(np.float32))
         X_test = torch.tensor(X_test.values.astype(np.float32))
-        y_train = torch.tensor(y_train.FT10_mean.values)
-        y_test = torch.tensor(y_test.FT10_mean.values)
+        y_train = torch.tensor(y_train.YPACETATE.values) #FT10_mean
+        y_val = torch.tensor(y_val.values.astype(np.float32))
+        y_test = torch.tensor(y_test.YPACETATE.values) #FT10_mean
         
-        
-        
-        #y = torch.tensor(y)
     else:
         geno_sub = torch.load(open("geno_sub.pth",'rb'))
         label = torch.load(open("label.pkl",'rb'))
@@ -403,7 +384,7 @@ def test_geno():
     adj_train, edge_index, adj_values = gen_adj_mat_tensor(X_train, adj_parameter_adaptive, "cosine")
 
     # Create PyTorch geometric Data object
-    return Data(x=geno_sub, edge_index=edge_index, y=label, train_mask=train_mask, test_mask=test_mask)
+    return Data(x=geno_sub, edge_index=edge_index, y=label, train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
 
 if __name__ == "__main__":
     import gc
@@ -427,16 +408,5 @@ if __name__ == "__main__":
     # # Optimizer    
     optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
     # # Train the model
-    # train(data,plot=True)
-    train_reg(data, plot=True)
-
-
-
-
-'''
-node feature 1000 
-
-
-
-
-'''
+    train(data,plot=True)
+    #train_reg(data, plot=True)
