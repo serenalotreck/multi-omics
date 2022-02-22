@@ -177,7 +177,7 @@ def main():
 							Index.append(t)
 			exp_list.index = Index
 			Exp = pd.concat([Exp,exp_list],axis=1) 
-		Exp.to_csv('LIME_expression_weight_all_test.txt'%i,sep='\t',header=True,index=True)
+		Exp.to_csv('LIME_expression_weight_all_test.txt',sep='\t',header=True,index=True)
 			
 
 if __name__ == '__main__':
