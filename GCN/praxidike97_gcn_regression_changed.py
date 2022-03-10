@@ -6,7 +6,7 @@ layer source: https://github.com/dizhu-gis/SRGCNN/blob/main/SRGCNN_demo.ipynb
 Adjacency matrix source: https://github.com/txWang/MOGONET
 
 To run on command line if CUDA error (device-side assert triggered): 
-    CUDA_LAUNCH_BLOCKING=1 python praxidike97_gcn_regression_changed.py 
+    CUDA_LAUNCH_BLOCKING=1 python praxidike97_gcn_regression_changed.py
 
 Data used:
     Planetoid: 
@@ -16,7 +16,7 @@ Data used:
     Multi-omics genotype: Data(x=[383, 1000], edge_index=[2, 5744], y=[383], train_mask=[383], test_mask=[383])
         1000 features, 383 instances
     
-    Yeast genotype: Data(x=[750, 64456], edge_index=[2, 1251], y=[750], train_mask=[750], test_mask=[750])
+    Yeast genotype: Data(x=[750, 64456], edge_index=[2, 1251], y=[750], train_mask=[750], val_mask=[750], test_mask=[750])
         64456 features, 750 instances
 """
 
@@ -29,12 +29,17 @@ from torch_geometric.datasets import Planetoid
 from torch_geometric.nn import MessagePassing
 from torch_geometric.utils import add_self_loops, degree
 from torch_geometric.data import Data
+from ignite.metrics import Accuracy
 import networkx as nx
 import numpy as np
 import matplotlib.pyplot as plt
 import time
 import pandas as pd
 import datatable as dt
+import gc
+import os
+from datetime import date
+from scipy import stats
 
 load_from_preprocess = False
 
@@ -93,27 +98,20 @@ class GCNConv_reg(nn.Module):
         return output
 
 # GCN Model
-class NetReg(torch.nn.Module):
+class NetReg(torch.nn.Module): # Regression
     def __init__(self, num_node_features):
         super().__init__()
-        # for classification
+        # for regression
         self.conv1 = GCNConv(data.x.shape[1], 200) # data.x.shape[1] = 750 samples; dataset.num_node_features, 16
         self.conv2 = GCNConv(200, 1) # 16, 1
-        # for regression
-        #self.conv1 = GCNConv(1000, 400) 
-        #self.conv2 = GCNConv(400, 383)
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
         x = self.conv1(x, edge_index)
         x = F.relu(x)
         x = F.dropout(x, training=self.training)
-        #print('dropout x', x, x.size())
         x = self.conv2(x, edge_index)
-        #print('x 2', x, x.size())
-        
-        #return x # for regression
-        return x# for classification
+        return x
         
 
 class Net(torch.nn.Module): # Classification
@@ -122,7 +120,6 @@ class Net(torch.nn.Module): # Classification
         # for classification
         self.conv1 = GCNConv(dataset.num_node_features, 16) 
         self.conv2 = GCNConv(16, dataset.num_classes)
-
 
     def forward(self, data):
         x, edge_index = data.x, data.edge_index
@@ -149,6 +146,39 @@ def plot_dataset(dataset):
     nx.draw(G, with_labels=False, node_color=labels.tolist(), cmap=plt.cm.tab10, font_weight='bold', **options)
     plt.savefig("planetoid_graph.png")
 
+def pearsonr(x, y):
+    """
+    Source: https://gist.github.com/ncullen93/58e71c4303b89e420bd8e0b0aa54bf48
+    Mimics `scipy.stats.pearsonr`
+    Arguments
+    ---------
+    x : 1D torch.Tensor
+    y : 1D torch.Tensor
+    Returns
+    -------
+    r_val : float
+        pearsonr correlation coefficient between x and y
+    
+    Scipy docs ref:
+        https://docs.scipy.org/doc/scipy/reference/generated/scipy.stats.pearsonr.html
+    
+    Scipy code ref:
+        https://github.com/scipy/scipy/blob/v0.19.0/scipy/stats/stats.py#L2975-L3033
+    Example:
+        >>> x = np.random.randn(100)
+        >>> y = np.random.randn(100)
+        >>> sp_corr = scipy.stats.pearsonr(x, y)[0]
+        >>> th_corr = pearsonr(torch.from_numpy(x), torch.from_numpy(y))
+        >>> np.allclose(sp_corr, th_corr)
+    """
+    mean_x = torch.mean(x)
+    mean_y = torch.mean(y)
+    xm = x.sub(mean_x)
+    ym = y.sub(mean_y)
+    r_num = xm.dot(ym)
+    r_den = torch.norm(xm, 2) * torch.norm(ym, 2)
+    r_val = r_num / r_den
+    return r_val
 
 # Evaluate the model on the test set
 def test(data, train=True, val=False):
@@ -170,7 +200,12 @@ def test_reg(data, train=True):
     model.eval()
     correct = 0
     pred = model(data)
-    return (pred - data.y).pow(2).sum().sqrt().item()
+    pval=0 # need to fix
+    corr = pearsonr(torch.flatten(pred), data.y).item()
+    rsq = corr.pow(2).item()
+    print("r-sq:", rsq)
+    rmse = (pred - data.y).pow(2).mean().sqrt().item()
+    return (rmse, rsq, corr, pval)
 
 # train the model
 def train_reg(data, plot=False):    
@@ -191,8 +226,8 @@ def train_reg(data, plot=False):
         loss.backward()
         optimizer.step()
 
-        train_acc = test_reg(data)
-        val_acc = test_reg(data, train=False)
+        train_acc, train_rsq, train_corr, train_pval = test_reg(data)
+        val_acc, val_rsq, val_corr, val_pval = test_reg(data, train=False)
 
         train_accuracies.append(train_acc)
         val_accuracies.append(val_acc)
@@ -202,18 +237,21 @@ def train_reg(data, plot=False):
     print("Elapsed time: ", end-start)
 
     # Test accuracy
-    test_acc = test(data, train=False)
+    test_acc, test_rsq, test_corr, test_pval = test_reg(data, train=False)
     print("Test Acc: {:.5f}".format(test_acc))
+    print("R-sq:", test_rsq)
+    print("PCC:", test_corr)
 
     if plot: # plot AUC curve
         plt.plot(train_accuracies, label="Train mse loss")
         plt.plot(val_accuracies, label="Validation mse loss")
-        plt.ylim([0,1000])
+        #plt.ylim([0,1000])
         plt.xlabel("# Epoch")
         plt.ylabel("mse")
         plt.title("new Dataset")
         plt.legend(loc='upper right')
         plt.savefig("auc_praxidike_gcn_yeast_val.png")
+    return(test_acc, test_rsq, test_corr, test_pval)
 
 # train the model
 def train(data, plot=False):    
@@ -229,8 +267,8 @@ def train(data, plot=False):
         loss.backward()
         optimizer.step()
 
-        train_acc = test(data)
-        val_acc = test(data, train=False, val=True)
+        train_acc = test_reg(data)
+        val_acc = test_reg(data, train=False)
 
         train_accuracies.append(train_acc)
         val_accuracies.append(val_acc)
@@ -241,7 +279,7 @@ def train(data, plot=False):
     print("Elapsed time: ", end-start)
 
     # Test accuracy
-    test_acc = test(data, train=False)
+    test_acc = test_reg(data, train=False)
     print("Test Acc: {:.5f}".format(test_acc))
 
     if plot: # plot AUC curve
@@ -252,6 +290,7 @@ def train(data, plot=False):
         plt.title("Planetoid Dataset")
         plt.legend(loc='upper right')
         plt.savefig("auc_praxidike_gcn_val.png")
+    return(test_acc)
 
 '''
 MOGONET Method for Computing Adjacency Matrix
@@ -315,34 +354,17 @@ def gen_adj_mat_tensor(data, parameter, metric="cosine"):
 
 
 # create PyTorch Data object using genotype data
-def test_geno():
-    # Datasets
-    #path = "/mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/Data" # multi-omics dataset
-    #geno_data="%s/SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv"%path
-    #pheno_data="%s/Phenotype_value_383_common_accessions_2017_Grimm.csv"%path
-    #test_mask="%s/test_20perc.txt"%path
-    path = "/mnt/home/seguraab/Shiu_Lab/Project/Data/Peter_2018"
-    geno_data = "%s/geno.csv"%path
-    pheno_data = "%s/pheno.csv"%path
-    test_mask="%s/Test.txt"%path
-    test_mask = pd.read_csv(test_mask, header=None)
-    
+def test_geno(geno, pheno, test_mask, trait):
     if not load_from_preprocess:
-        geno = dt.fread(geno_data) # read in genotype data
-        geno = geno.to_pandas() # convert dataframe to pandas dataframe  # 383, 1771291 
-        # geno = pd.read_csv(geno_data)
-        geno = geno.sort_values(by=geno.columns[0], axis=0) # sort values by sample ID
-        geno = geno.set_index(geno.columns[0], drop=True) # set index to sample ID
-        geno_sub = geno
-        features = geno_sub.columns # columns as features
-        
-        pheno = pd.read_csv(pheno_data, index_col=0) # read in phenotype data
+        features = geno.columns # columns as features
+    
         #label = pheno.FT10_mean
-        label = pheno.YPACETATE
-        
+        label = pheno[trait]
+        label.head()
+
         # Split geno and pheno into training and testing sets
-        X_train = geno_sub.loc[~geno_sub.index.isin(test_mask[0])]
-        X_test = geno_sub.loc[geno_sub.index.intersection(test_mask[0])]
+        X_train = geno.loc[~geno.index.isin(test_mask[0])]
+        X_test = geno.loc[geno.index.intersection(test_mask[0])]
         y_train = pheno.loc[~pheno.index.isin(test_mask[0])]
         y_test = pheno.loc[pheno.index.intersection(test_mask[0])]
 
@@ -358,8 +380,7 @@ def test_geno():
         test_mask = tensor([i in np.array(X_test.index) for i in np.array(geno.index)])
         
         # Convert to PyTorch tensors
-        geno_sub = torch.tensor(geno_sub.values.astype(np.float32))
-        #geno_sub[geno_sub==-1] = 0 # convert -1 to 0, just in case
+        geno = torch.tensor(geno.values.astype(np.float32))
         label = torch.tensor(label.values.astype(np.float32))
         X_train = torch.tensor(X_train.values.astype(np.float32))
         X_val = torch.tensor(X_val.values.astype(np.float32))
@@ -369,44 +390,77 @@ def test_geno():
         y_test = torch.tensor(y_test.YPACETATE.values) #FT10_mean
         
     else:
-        geno_sub = torch.load(open("geno_sub.pth",'rb'))
-        label = torch.load(open("label.pkl",'rb'))
-        train_mask = torch.load(open("train_mask.pkl",'rb'))
-        test_mask  = torch.load(open("test_mask.pkl",'rb'))
-        X_train = torch.load(open("x_train.pkl",'rb'))
-        X_test  = torch.load(open("x_test.pkl",'rb'))
-        y_test  = torch.load(open("y_test.pkl",'rb'))
-        y_train = torch.load(open("y_train.pkl",'rb'))
+        geno = torch.load(open(trait+"_geno.pth",'rb'))
+        label = torch.load(open(trait+"_label.pkl",'rb'))
+        train_mask = torch.load(open(trait+"_train_mask.pkl",'rb'))
+        test_mask  = torch.load(open(trait+"_test_mask.pkl",'rb'))
+        X_train = torch.load(open(trait+"_x_train.pkl",'rb'))
+        X_test  = torch.load(open(trait+"_x_test.pkl",'rb'))
+        y_test  = torch.load(open(trait+"_y_test.pkl",'rb'))
+        y_train = torch.load(open(trait+"_y_train.pkl",'rb'))
 
     # Compute adjacency matrix
     adj_parameter = 2 # edge_per_node
     adj_parameter_adaptive = cal_adj_mat_parameter(adj_parameter, X_train, "cosine")
     adj_train, edge_index, adj_values = gen_adj_mat_tensor(X_train, adj_parameter_adaptive, "cosine")
+    print(edge_index)
 
     # Create PyTorch geometric Data object
-    return Data(x=geno_sub, edge_index=edge_index, y=label, train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
+    return Data(x=geno, edge_index=edge_index, y=label, train_mask=train_mask, val_mask=val_mask, test_mask=test_mask)
 
 if __name__ == "__main__":
-    import gc
+    timestamp = date.today().strftime('%Y-%m-%d %H:%M:%S')
+    torch.manual_seed(0) # seed for reproducibility
     gc.collect()
     torch.cuda.empty_cache()
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu') # check device
     print(device)
 
-    # planetoid data for classification
+    # Planetoid data for classification
     # dataset = Planetoid(root='/tmp/Cora', name='Cora') # load dataset (2708 nodes/input tensor vars, 1433 instances)
     # data = dataset[0].to(device)
+
+    # Read in data for regression
+    ### Multi-Omics Datasets
+    #path = "/mnt/home/seguraab/Shiu_Lab/Collabs/Multi_Omic/Data" # multi-omics dataset
+    #geno_data="%s/SNP_binary_matrix_383_accessions_drop_all_zero_MAF_larger_than_0.05_converted.csv"%path
+    #pheno_data="%s/Phenotype_value_383_common_accessions_2017_Grimm.csv"%path
+    #test_mask="%s/test_20perc.txt"%path
     
-    # genotype data for regression
-    dataset = test_geno()
-    data = dataset.cuda(device)
-    print("data", data)
-    # model = Net(dataset) # create GCN model
-    # model.cuda(device) # send to gpu
-    model = NetReg(data.x.shape[1])
-    model.cuda(device) # send to gpu
-    # # Optimizer    
-    optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
-    # # Train the model
-    train(data,plot=True)
-    #train_reg(data, plot=True)
+    ### Yeast Datasets
+    path = "/mnt/home/seguraab/Shiu_Lab/Project/Data/Peter_2018"
+    geno_data = "%s/geno.csv"%path
+    pheno_data = "%s/pheno.csv"%path
+    test_mask="%s/Test.txt"%path
+    test_mask = pd.read_csv(test_mask, header=None) # read in test instances
+    pheno = pd.read_csv(pheno_data, index_col=0) # read in phenotype data
+    geno = dt.fread(geno_data) # read in genotype data
+    geno = geno.to_pandas() # convert dataframe to pandas dataframe  # 383, 1771291 
+    geno = geno.sort_values(by=geno.columns[0], axis=0) # sort values by sample ID
+    geno = geno.set_index(geno.columns[0], drop=True) # set index to sample ID
+    
+    # Save results to file
+    if not os.path.isfile('RESULTS_gcn.txt'):
+        file = open('RESULTS_gcn.txt', 'a')
+        file.write('Date\nTrait\tRMSE\nR-sq\nPCC\nP-value\n') # add pcc later
+        file.close()
+
+    file = open("RESULTS_gcn.txt", "a")
+    envs = ["YPACETATE", "YPD14", "YPD40", "YPD42", "YPD6AU", "YPDANISO10", "YPDANISO20", "YPDANISO50", "YPDBENOMYL200", "YPDBENOMYL500", "YPDCAFEIN40", "YPDCAFEIN50", "YPDCHX05", "YPDCHX1", "YPDCUSO410MM", "YPDDMSO", "YPDETOH", "YPDFLUCONAZOLE", "YPDFORMAMIDE4", "YPDFORMAMIDE5", "YPDHU", "YPDKCL2M", "YPDLICL250MM", "YPDMV", "YPDNACL15M", "YPDNACL1M", "YPDNYSTATIN", "YPDSDS", "YPDSODIUMMETAARSENITE", "YPETHANOL", "YPGALACTOSE", "YPRIBOSE", "YPGLYCEROL", "YPXYLOSE", "YPSORBITOL"]
+    for trait in envs:
+        print(trait)
+        # genotype data for regression
+        dataset = test_geno(geno, pheno, test_mask, trait)
+        data = dataset.cuda(device)
+        print("data", data)
+        # model = Net(dataset) # create GCN model
+        # model.cuda(device) # send to gpu
+        model = NetReg(data.x.shape[1])
+        model.cuda(device) # send to gpu
+        # # Optimizer    
+        optimizer = torch.optim.Adam(model.parameters(), lr=0.01, weight_decay=5e-4)
+        # # Train the model
+        test_acc, test_rsq, test_corr, test_pval = train_reg(data, plot=True)
+        file.write("%s\t%s\t%f\t%f\t%f\t%f\n"%(timestamp, trait, test_acc, test_rsq, test_corr, test_pval))
+        #train_reg(data, plot=True)
+    file.close()
