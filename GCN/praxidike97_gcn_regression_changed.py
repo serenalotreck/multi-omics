@@ -40,6 +40,7 @@ import gc
 import os
 from datetime import date
 from scipy import stats
+from sklearn.metrics import r2_score
 
 load_from_preprocess = False
 
@@ -181,7 +182,7 @@ def pearsonr(x, y):
     return r_val
 
 # Evaluate the model on the test set
-def test(data, train=True, val=False):
+def test(data, train=True, val=False): # Classification
     model.eval()
     correct = 0
     pred = model(data)#.max(dim=1)[1]
@@ -195,20 +196,62 @@ def test(data, train=True, val=False):
         correct += pred[data.test_mask].eq(data.y[data.test_mask]).sum().item()
         return correct / (len(data.y[data.test_mask]))
 
+# train the model
+def train(data, plot=False): # Classification
+    train_accuracies, val_accuracies = list(), list()
+    start = time.time()
+    for epoch in range(100):
+        model.train()
+        optimizer.zero_grad()
+        out = model(data)
+
+        # for classification
+        loss = F.nll_loss(out[data.val_mask], data.y[data.val_mask])
+        loss.backward()
+        optimizer.step()
+
+        train_acc = test_reg(data)
+        val_acc = test_reg(data, train=False)
+
+        train_accuracies.append(train_acc)
+        val_accuracies.append(val_acc)
+        print('Epoch: {:03d}, Loss: {:.5f}, Train Acc: {:.5f}, Val Acc: {:.5f}'.
+              format(epoch, loss, train_acc, val_acc))
+   
+    end = time.time()
+    print("Elapsed time: ", end-start)
+
+    # Test accuracy
+    test_acc = test_reg(data, train=False)
+    print("Test Acc: {:.5f}".format(test_acc))
+
+    if plot: # plot AUC curve
+        plt.plot(train_accuracies, label="Train accuracy")
+        plt.plot(val_accuracies, label="Validation accuracy")
+        plt.xlabel("# Epoch")
+        plt.ylabel("Accuracy")
+        plt.title("Planetoid Dataset")
+        plt.legend(loc='upper right')
+        plt.savefig("auc_praxidike_gcn_val.png")
+    return(test_acc)
+
 # Evaluate the model on the validation or test set
-def test_reg(data, train=True):
+def test_reg(data, train=True): # Regression
     model.eval()
     correct = 0
     pred = model(data)
     pval=0 # need to fix
     corr = pearsonr(torch.flatten(pred), data.y).item()
-    rsq = corr.pow(2).item()
+    #rsq = corr.pow(2).item()
+    pred_cpu = pred.cpu()
+    y_cpu = data.y.cpu()
+    rsq = r2_score(torch.flatten(pred_cpu).detach().numpy(), y_cpu.detach().numpy()).item()
     print("r-sq:", rsq)
     rmse = (pred - data.y).pow(2).mean().sqrt().item()
     return (rmse, rsq, corr, pval)
 
 # train the model
-def train_reg(data, plot=False):    
+def train_reg(data, plot=False): # Regression
     train_accuracies, val_accuracies = list(), list()
     start = time.time()
     for epoch in range(100):
@@ -252,45 +295,6 @@ def train_reg(data, plot=False):
         plt.legend(loc='upper right')
         plt.savefig("auc_praxidike_gcn_yeast_val.png")
     return(test_acc, test_rsq, test_corr, test_pval)
-
-# train the model
-def train(data, plot=False):    
-    train_accuracies, val_accuracies = list(), list()
-    start = time.time()
-    for epoch in range(100):
-        model.train()
-        optimizer.zero_grad()
-        out = model(data)
-
-        # for classification
-        loss = F.nll_loss(out[data.val_mask], data.y[data.val_mask])
-        loss.backward()
-        optimizer.step()
-
-        train_acc = test_reg(data)
-        val_acc = test_reg(data, train=False)
-
-        train_accuracies.append(train_acc)
-        val_accuracies.append(val_acc)
-        print('Epoch: {:03d}, Loss: {:.5f}, Train Acc: {:.5f}, Val Acc: {:.5f}'.
-              format(epoch, loss, train_acc, val_acc))
-   
-    end = time.time()
-    print("Elapsed time: ", end-start)
-
-    # Test accuracy
-    test_acc = test_reg(data, train=False)
-    print("Test Acc: {:.5f}".format(test_acc))
-
-    if plot: # plot AUC curve
-        plt.plot(train_accuracies, label="Train accuracy")
-        plt.plot(val_accuracies, label="Validation accuracy")
-        plt.xlabel("# Epoch")
-        plt.ylabel("Accuracy")
-        plt.title("Planetoid Dataset")
-        plt.legend(loc='upper right')
-        plt.savefig("auc_praxidike_gcn_val.png")
-    return(test_acc)
 
 '''
 MOGONET Method for Computing Adjacency Matrix
